@@ -5,10 +5,6 @@
 
 
 
-
-
-
-
 typedef uint16_t LIFXFrameHeaderPart;
 
 struct LIFXFrameHeader{
@@ -55,20 +51,20 @@ struct LIFXFrameAddress{
 		target = _target;
 		packedPart = 0x00;
 		//first 6 bytes (48 bits) are 0
-		packedPart |= (_resRequired ? 1 : 0) << 48;
-		packedPart |= (_ackRequired ? 1 : 0) << 49;
-		packedPart |= static_cast<uint64_t>(_sequence) << 56;
+		packedPart |= (uint64_t)(_resRequired ? 1 : 0) << 48;
+		packedPart |= (uint64_t)(_ackRequired ? 1 : 0) << 49;
+		packedPart |= (uint64_t)(_sequence) << 56;
 	}
 
 	uint64_t target;
 	LIFXFrameAddressPart packedPart;
 
 	//targets must be 8 size
-	static void GetTargets(uint64_t _target, uint8_t** targets){
+	static void GetTargets(uint64_t _target, uint8_t* targets){
 		for(int i = 0; i < 7; i++){
 			//2^n - 1 bits
 			//2^(8*i) - 1
-			(*targets)[i] = _target >> (i*8) &0xFF;
+			targets[i] = _target >> (i*8) &0xFF;
 		}
 	}
 
@@ -136,8 +132,7 @@ struct LIFXMessage {
 
 		// Use provided GetTargets
 		uint8_t targetBytes[8] = {0};
-		uint8_t* ptr = targetBytes;
-		LIFXFrameAddress::GetTargets(frameAddress.target, &ptr);
+		LIFXFrameAddress::GetTargets(frameAddress.target, targetBytes);
 
 		Serial.printf("Target Bytes: ");
 		for (int i = 0; i < 7; i++) {
@@ -175,10 +170,10 @@ struct StatePowerMsg {
 #pragma pack(pop)
 
 //dont forget to free when done!!!!!!!
-uint8_t* GetStatePowerMsg(uint16_t level){
+uint8_t* GetStatePowerMsg(uint16_t level, uint64_t target){
 	const int totalPacketSize = basePacketSize + sizeof(StatePowerMsg);
-	LIFXFrameHeader fh(totalPacketSize,1024,true,false,0,6767);
-	LIFXFrameAddress fa(0,true,false,0);
+	LIFXFrameHeader fh(totalPacketSize,1024,true,false,0,2);
+	LIFXFrameAddress fa(target,false,false,0);
 	LIFXProtocolHeader ph(21);//Set power packet
 	LIFXMessage getService {fh, fa, ph};
 	uint8_t* data = new uint8_t[totalPacketSize];
@@ -213,7 +208,7 @@ void setup() {
 	int port = 56700;
 	if (udp.listen (port)) {
         udp.onPacket ([] (AsyncUDPPacket packet) {
-			// Serial.println("Got something");
+			Serial.println("Got something back");
 			// Serial.println(packet.length());
 
 
@@ -226,22 +221,14 @@ void setup() {
 				if(msg.protocolHeader.type == 3){
 					StateServicePacket statePacket;
 					memcpy(&statePacket, packet.data() + basePacketSize, pSize);
-					Serial.printf("Service %i\n", statePacket.service);
-					Serial.printf("Port %i\n", statePacket.port);
-				}
+					Serial.printf("Service %i, Port %i, target: %llu\n", statePacket.service, statePacket.port, msg.frameAddress.target);
 
-				//has payload data
-				// uint8_t* payload = new uint8_t[pSize];
-				// memcpy(payload, packet.data() + basePacketSize, pSize);
+				}
 			}
 			
 			// msg.Print();
-			// Serial.println();
-			// Serial.println();
-
-			// for(int i = 0; i < packet.length(); i++){
-			// 	Serial.println(packet.data()[i]);
-			// }
+			Serial.println();
+			Serial.println();
 		});
 	}
 
@@ -256,18 +243,26 @@ LIFXMessage getService {fh, fa, ph};
 //https://lan.developer.lifx.com/docs/packet-contents
 
 
-
-uint64_t lastTime = 0;
+int delayTime = 2000;
+int64_t lastTime = -delayTime;
+bool on = false;
 void loop() {
 	
-	if(millis() - lastTime > 30000){
-		uint8_t* msg = GetStatePowerMsg(65535);
+	if(millis() - lastTime > delayTime){
+		
+		uint16_t val = on ? 0 : 65535;
+		//29808227873744
+		uint8_t* msg = GetStatePowerMsg(val, 0);
+		// uint8_t* msg2 = GetStatePowerMsg(val, 211201876653008);
+		Serial.println(val);
 		//send
-		// Serial.println("Sending");
-		// Serial.println(udp.broadcast((uint8_t*)(&getService),fh.size));
-		Serial.println(udp.broadcast(msg, basePacketSize + sizeof(StatePowerMsg)));
+		// udp.broadcast((uint8_t*)(&getService),fh.size);
+		udp.broadcast(msg, basePacketSize + sizeof(StatePowerMsg));
+		// udp.broadcast(msg2, basePacketSize + sizeof(StatePowerMsg));
 		lastTime = millis();
+		on = !on;
 		delete[] msg;
+		// delete[] msg2;
 	}
 	
 }

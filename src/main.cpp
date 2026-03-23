@@ -169,11 +169,16 @@ struct StatePowerMsg {
 };
 #pragma pack(pop)
 
+struct SendMSG{
+	uint8_t* data;
+	size_t len;
+};
+
 //dont forget to free when done!!!!!!!
 uint8_t* GetStatePowerMsg(uint16_t level, uint64_t target){
 	const int totalPacketSize = basePacketSize + sizeof(StatePowerMsg);
 	LIFXFrameHeader fh(totalPacketSize,1024,true,false,0,2);
-	LIFXFrameAddress fa(target,false,false,0);
+	LIFXFrameAddress fa(target,true,false,67);
 	LIFXProtocolHeader ph(21);//Set power packet
 	LIFXMessage getService {fh, fa, ph};
 	uint8_t* data = new uint8_t[totalPacketSize];
@@ -184,7 +189,105 @@ uint8_t* GetStatePowerMsg(uint16_t level, uint64_t target){
 	return data;
 }
 
-AsyncUDP udp;
+uint8_t* GetLightPowerMsg(uint16_t level, uint32_t duration, uint64_t target){
+	static uint8_t seq = 0;
+	seq++;
+	#pragma pack(push, 1)
+	struct {
+		uint16_t _level;
+		uint32_t _duration;
+	} payload {level, duration};
+	#pragma pack(pop)
+
+	const int totalPacketSize = basePacketSize + sizeof(payload);
+	LIFXFrameHeader fh(totalPacketSize,1024,true,false,0,seq);
+	LIFXFrameAddress fa(target,true,false,0);
+	LIFXProtocolHeader ph(117);//SetLightPower 
+	LIFXMessage getService {fh, fa, ph};
+	uint8_t* data = new uint8_t[totalPacketSize];
+	memcpy(data, &getService, basePacketSize);
+	
+	memcpy(data + basePacketSize, &payload, sizeof(payload));
+	return data;
+}
+
+SendMSG GetSetColourMsg(uint16_t hue, uint16_t saturation, uint16_t brightness, uint16_t kelvin, uint32_t duration, uint64_t target){
+	#pragma pack(push, 1)
+	struct {
+		uint8_t res;
+		uint16_t _hue; 
+		uint16_t _saturation; 
+		uint16_t _brightness; 
+		uint16_t _kelvin; 
+		uint32_t _duration;
+	} payload {0,hue, saturation, brightness, kelvin, duration};
+	#pragma pack(pop)
+
+	const int totalPacketSize = basePacketSize + sizeof(payload);
+	LIFXFrameHeader fh(totalPacketSize,1024,true,false,0,2);
+	LIFXFrameAddress fa(target,false,false,1);
+	LIFXProtocolHeader ph(102);//SetColor
+	LIFXMessage getService {fh, fa, ph};
+	uint8_t* data = new uint8_t[totalPacketSize];
+	memcpy(data, &getService, basePacketSize);
+	
+	memcpy(data + basePacketSize, &payload, sizeof(payload));
+	return {data, totalPacketSize};
+}
+
+
+#include <lwip/sockets.h>
+#include <lwip/netdb.h>
+
+constexpr uint16_t port = 56700;
+#define UDP_PORT 56700
+#define BUFFER_SIZE 256
+#define SOCKET_TIMEOUT_MS 2000
+
+int sock;
+struct sockaddr_in dest;
+IPAddress broadcast;
+
+IPAddress getBroadcast(IPAddress ip, IPAddress subnet) {
+  IPAddress broadcast;
+  for (int i = 0; i < 4; i++) {
+    broadcast[i] = ip[i] | (~subnet[i]);
+  }
+  return broadcast;
+}
+
+void sendBroadcast(const uint8_t* data, size_t len) {
+
+	int err = sendto(sock, data, len, 0, (struct sockaddr*)&dest, sizeof(dest));
+
+	// if (err < 0) {
+	// 	Serial.println("Send failed");
+	// } else {
+	// 	Serial.printf("Sent %d bytes to %s\n", err, broadcast.toString().c_str());
+	// }
+}
+
+
+void receivePacket() {
+	uint8_t buffer[BUFFER_SIZE];
+
+	struct sockaddr_in sourceAddr;
+	socklen_t addrLen = sizeof(sourceAddr);
+
+	int len = recvfrom(sock, buffer, BUFFER_SIZE, 0,
+						(struct sockaddr*)&sourceAddr, &addrLen);
+
+	if (len < 0) {
+		//Serial.println("No data (timeout)");
+		return;
+	}
+
+	char ipStr[16];
+	inet_ntoa_r(sourceAddr.sin_addr, ipStr, sizeof(ipStr));
+
+	Serial.printf("Received %d bytes from %s:%d\n",len,ipStr,ntohs(sourceAddr.sin_port));
+
+}
 
 void setup() {
 	Serial.begin(115200);
@@ -197,74 +300,76 @@ void setup() {
 		delay(200);
 		tries++;
 		if(tries == 30) {
-			Serial.println("\n Failed to connect to WiFi. Looping.");
-			for(;;){delay(100);}
+			Serial.println("\n Failed to connect to WiFi. Restarting.");
+			esp_restart();
 		}
 	}
 
-	Serial.println("Connected to wifi");
+	//Serial.println("Connected to wifi");
 
-
-	int port = 56700;
-	if (udp.listen (port)) {
-        udp.onPacket ([] (AsyncUDPPacket packet) {
-			Serial.println("Got something back");
-			// Serial.println(packet.length());
-
-
-			LIFXMessage msg;
-			memcpy(&msg, packet.data(), basePacketSize);
-
-			if(packet.length() - basePacketSize > 0){
-				const int pSize = packet.length() - basePacketSize;
-
-				if(msg.protocolHeader.type == 3){
-					StateServicePacket statePacket;
-					memcpy(&statePacket, packet.data() + basePacketSize, pSize);
-					Serial.printf("Service %i, Port %i, target: %llu\n", statePacket.service, statePacket.port, msg.frameAddress.target);
-
-				}
-			}
-			
-			// msg.Print();
-			Serial.println();
-			Serial.println();
-		});
+	sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (sock < 0) {
+		Serial.println("Socket creation failed");
+		return;
 	}
+
+	int broadcastEnable = 1;
+	setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
+
+
+	struct timeval timeout;
+	timeout.tv_sec = SOCKET_TIMEOUT_MS / 1000;
+	timeout.tv_usec = (SOCKET_TIMEOUT_MS % 1000) * 1000;
+	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+
+	struct sockaddr_in addr;
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(UDP_PORT);
+	addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+		Serial.println("Bind failed");
+		return;
+	}
+
+	IPAddress ip = WiFi.localIP();
+	IPAddress subnet = WiFi.subnetMask();
+	broadcast = getBroadcast(ip, subnet);
+
+	dest.sin_family = AF_INET;
+	dest.sin_port = htons(UDP_PORT);
+	dest.sin_addr.s_addr = inet_addr(broadcast.toString().c_str());
+
+
 
 }
 
-
-LIFXFrameHeader fh(basePacketSize,1024,true,false,0,6767);
-LIFXFrameAddress fa(0,true,false,0);
-LIFXProtocolHeader ph(2);//which command #
-LIFXMessage getService {fh, fa, ph};
-
 //https://lan.developer.lifx.com/docs/packet-contents
 
-
-int delayTime = 2000;
+uint8_t buffer[255];
+int delayTime = 5000;
 int64_t lastTime = -delayTime;
 bool on = false;
 void loop() {
-	
 	if(millis() - lastTime > delayTime){
-		
-		uint16_t val = on ? 0 : 65535;
-		//29808227873744
-		uint8_t* msg = GetStatePowerMsg(val, 0);
-		// uint8_t* msg2 = GetStatePowerMsg(val, 211201876653008);
-		Serial.println(val);
-		//send
-		// udp.broadcast((uint8_t*)(&getService),fh.size);
-		udp.broadcast(msg, basePacketSize + sizeof(StatePowerMsg));
-		// udp.broadcast(msg2, basePacketSize + sizeof(StatePowerMsg));
+		// float temp = temperatureRead();
+		// Serial.print("CPU Temp: ");
+		// Serial.print(temp);
+		// Serial.println(" C");
+		// uint8_t* msg = GetLightPowerMsg(on ? 0 : 32767, 1000, 0);
+		// sendBroadcast(msg, basePacketSize + 6);
+		// receivePacket();
+		// delete[] msg;
+
+		SendMSG msg = GetSetColourMsg(47331, 62000,on ? 0 : 65535,6500,10000,0);
+		// SendMSG msg = GetSetColourMsg(47331, millis()%65535,on ? 0 : 1000,2700,0,0);
+		sendBroadcast(msg.data, msg.len);
+		//receivePacket();
+		delete[] msg.data;
 		lastTime = millis();
 		on = !on;
-		delete[] msg;
-		// delete[] msg2;
 	}
-	
 }
 
 

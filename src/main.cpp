@@ -273,7 +273,7 @@ void receivePacket() {
 
 	struct sockaddr_in sourceAddr;
 	socklen_t addrLen = sizeof(sourceAddr);
-
+	
 	int len = recvfrom(sock, buffer, BUFFER_SIZE, 0,
 						(struct sockaddr*)&sourceAddr, &addrLen);
 
@@ -284,7 +284,7 @@ void receivePacket() {
 
 	char ipStr[16];
 	inet_ntoa_r(sourceAddr.sin_addr, ipStr, sizeof(ipStr));
-
+	
 	Serial.printf("Received %d bytes from %s:%d\n",len,ipStr,ntohs(sourceAddr.sin_port));
 
 }

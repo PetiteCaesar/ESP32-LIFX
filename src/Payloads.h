@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include "lwip/inet.h"
+
 namespace LIFX{
 
     struct Colour{
@@ -128,6 +130,7 @@ namespace LIFX{
         struct StateService{
             uint8_t service;//1=UDP, 2-5=Reserved1-4
             uint32_t port;//Port of service, usually 56700, but not always
+            in_addr deviceIP;//the devices IP
         };
 
         /*
@@ -164,6 +167,10 @@ namespace LIFX{
 
         struct StatePower{
             uint16_t level;//The level of a device (0=Off, 65535=On)
+        };
+
+        struct StateLabel{
+            char label[32];//The devices label
         };
     }
     

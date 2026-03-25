@@ -102,54 +102,54 @@ struct LIFXProtocolHeader{
 
 #pragma pack(push, 1)
 struct LIFXFullHeader {
-	LIFXMessage() = default;
+	LIFXFullHeader() = default;
 	LIFXFrameHeader frameHeader;
 	LIFXFrameAddress frameAddress;
 	LIFXProtocolHeader protocolHeader;
 
 	//thanks chat
-	void Print() const {
-		// ---- Frame Header ----
-		Serial.printf("=== Frame Header ===\n");
-		Serial.printf("Size: %u\n", frameHeader.size);
-		Serial.printf("Protocol: %u\n",
-			LIFXFrameHeader::GetProtocol(frameHeader.packedPart));
-		Serial.printf("Addressable: %u\n",
-			LIFXFrameHeader::GetAddressable(frameHeader.packedPart));
-		Serial.printf("Tagged: %u\n",
-			LIFXFrameHeader::GetTagged(frameHeader.packedPart));
-		Serial.printf("Origin: %u\n",
-			LIFXFrameHeader::GetOrigin(frameHeader.packedPart));
-		Serial.printf("Source: %lu\n\n", frameHeader.source);
+	// void Print() const {
+	// 	// ---- Frame Header ----
+	// 	Serial.printf("=== Frame Header ===\n");
+	// 	Serial.printf("Size: %u\n", frameHeader.size);
+	// 	Serial.printf("Protocol: %u\n",
+	// 		LIFXFrameHeader::GetProtocol(frameHeader.packedPart));
+	// 	Serial.printf("Addressable: %u\n",
+	// 		LIFXFrameHeader::GetAddressable(frameHeader.packedPart));
+	// 	Serial.printf("Tagged: %u\n",
+	// 		LIFXFrameHeader::GetTagged(frameHeader.packedPart));
+	// 	Serial.printf("Origin: %u\n",
+	// 		LIFXFrameHeader::GetOrigin(frameHeader.packedPart));
+	// 	Serial.printf("Source: %lu\n\n", frameHeader.source);
 
-		// ---- Frame Address ----
-		Serial.printf("=== Frame Address ===\n");
-		Serial.printf("Target: %llu\n", frameAddress.target);
-		Serial.printf("Res Required: %u\n",
-			LIFXFrameAddress::GetResRequired(frameAddress.packedPart));
-		Serial.printf("Ack Required: %u\n",
-			LIFXFrameAddress::GetAckRequired(frameAddress.packedPart));
-		Serial.printf("Sequence: %u\n",
-			LIFXFrameAddress::GetSequence(frameAddress.packedPart));
+	// 	// ---- Frame Address ----
+	// 	Serial.printf("=== Frame Address ===\n");
+	// 	Serial.printf("Target: %llu\n", frameAddress.target);
+	// 	Serial.printf("Res Required: %u\n",
+	// 		LIFXFrameAddress::GetResRequired(frameAddress.packedPart));
+	// 	Serial.printf("Ack Required: %u\n",
+	// 		LIFXFrameAddress::GetAckRequired(frameAddress.packedPart));
+	// 	Serial.printf("Sequence: %u\n",
+	// 		LIFXFrameAddress::GetSequence(frameAddress.packedPart));
 
-		// Use provided GetTargets
-		uint8_t targetBytes[8] = {0};
-		LIFXFrameAddress::GetTargets(frameAddress.target, targetBytes);
+	// 	// Use provided GetTargets
+	// 	uint8_t targetBytes[8] = {0};
+	// 	LIFXFrameAddress::GetTargets(frameAddress.target, targetBytes);
 
-		Serial.printf("Target Bytes: ");
-		for (int i = 0; i < 7; i++) {
-			Serial.printf("%u ", targetBytes[i]);
-		}
-		Serial.printf("\n\n");
+	// 	Serial.printf("Target Bytes: ");
+	// 	for (int i = 0; i < 7; i++) {
+	// 		Serial.printf("%u ", targetBytes[i]);
+	// 	}
+	// 	Serial.printf("\n\n");
 
-		// ---- Protocol Header ----
-		Serial.printf("=== Protocol Header ===\n");
-		Serial.printf("Reserved1: %llu\n", protocolHeader._reserved1);
-		Serial.printf("Type: %u\n", protocolHeader.type);
-		Serial.printf("Reserved2: %u\n", protocolHeader._reserved2);
+	// 	// ---- Protocol Header ----
+	// 	Serial.printf("=== Protocol Header ===\n");
+	// 	Serial.printf("Reserved1: %llu\n", protocolHeader._reserved1);
+	// 	Serial.printf("Type: %u\n", protocolHeader.type);
+	// 	Serial.printf("Reserved2: %u\n", protocolHeader._reserved2);
 
-		Serial.printf("========================\n");
-	}
+	// 	Serial.printf("========================\n");
+	// }
 
 	
 };

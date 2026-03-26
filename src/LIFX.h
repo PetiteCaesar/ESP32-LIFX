@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 #include "Payloads.h"
-
+#include <lwip/sockets.h>
 
 
 namespace LIFX{
@@ -21,7 +21,12 @@ namespace LIFX{
         enum class SET_RESP{
             SENT_SUCCESS,
             SENT_FAILED,
-            QUEUE_FULL
+        };
+
+        enum class UDP_SETUP_RESP{
+            SOCKET_CREATION_FAIL,
+            BIND_FAIL,
+            SUCCESS
         };
 
         LIFX_UDP(){
@@ -31,7 +36,7 @@ namespace LIFX{
         }
         static const uint16_t port = 56700;
         
-        void Begin();
+        UDP_SETUP_RESP Begin();
 
         SET_RESP SetPower(Payloads::SetPower payload, const Device& device, bool requireAck = true){
             return _SetPower(payload,&device,requireAck);
@@ -41,6 +46,16 @@ namespace LIFX{
         }
 
     private:
+
+        int m_sock;
+        sockaddr_in m_broadcastDest;
+        
+        void ReceivePacket();
+        bool SendBroadcast(const uint8_t* data, size_t len);
+
+
+        //Creates the packet header. Payload offset should be at HEADER_SIZE
+        uint8_t* GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint8_t sequence, uint64_t target);
 
         //true if successfully sent msg, false if failed, or 
         SET_RESP _SetPower(Payloads::SetPower payload, const Device* dev, bool requireAck);

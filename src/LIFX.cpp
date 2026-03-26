@@ -1,7 +1,11 @@
 #include "LIFX.h"
 
-#include <string.h>
+
 #include "LIFXConfig.h"
+
+#include <string.h>
+#include <lwip/netdb.h>
+#include <lwip/inet.h>
 
 typedef uint16_t LIFXFrameHeaderPart;
 typedef uint64_t LIFXFrameAddressPart;
@@ -159,26 +163,88 @@ struct LIFXFullHeader {
 
 
 namespace LIFX{
+	uint32_t LIFX::LIFX_UDP::m_sourceId = 0;
+
+    LIFX_UDP::UDP_SETUP_RESP LIFX_UDP::Begin() {
+		m_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+		if (m_sock < 0) {
+			return UDP_SETUP_RESP::SOCKET_CREATION_FAIL;
+		}
+
+		int broadcastEnable = 1;
+		setsockopt(m_sock, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
 
 
-LIFX_UDP::SET_RESP LIFX_UDP::_SetPower(Payloads::SetPower payload, const Device *dev, bool requireAck){
-    //temp
-    return (LIFX_UDP::SET_RESP)1;
-    //since SetPower has just a uint16_t
-    constexpr int totalPacketSize = HEADER_SIZE + 2;
-    
-	LIFXFullHeader getService {
-        LIFXFrameHeader(totalPacketSize,PROTOCOL,ADDRESSABLE,TAGGED,ORIGIN,m_sourceId), 
-        LIFXFrameAddress(Device::GetTarget(dev),false,requireAck,67), 
-        LIFXProtocolHeader(21)
-    };
-	uint8_t* data = new uint8_t[totalPacketSize];
-	memcpy(data, &getService, HEADER_SIZE);
-	memcpy(data + HEADER_SIZE, &payload.level, 2);
-}
+		timeval timeout;
+		timeout.tv_sec = SOCKET_TIMEOUT_MS / 1000;
+		timeout.tv_usec = (SOCKET_TIMEOUT_MS % 1000) * 1000;
+		setsockopt(m_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
 
+		sockaddr_in addr;
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(UDP_PORT);
+		addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
+		if (bind(m_sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+			return UDP_SETUP_RESP::BIND_FAIL;
+		}
+		
+		m_broadcastDest.sin_family = AF_INET;
+		m_broadcastDest.sin_port = htons(UDP_PORT);
+		m_broadcastDest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 
+		return UDP_SETUP_RESP::SUCCESS;
+    }
+
+    void LIFX_UDP::ReceivePacket() {
+		uint8_t buffer[BUFFER_SIZE];
+
+		sockaddr_in sourceAddr;
+		socklen_t addrLen = sizeof(sourceAddr);
+		
+		int len = recvfrom(m_sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&sourceAddr, &addrLen);
+
+		if (len < 0) {
+			//Serial.println("No data (timeout)");
+			return;
+		}
+
+		char ipStr[16];
+		inet_ntoa_r(sourceAddr.sin_addr, ipStr, sizeof(ipStr));
+		//print it
+    }
+
+    bool LIFX_UDP::SendBroadcast(const uint8_t *data, size_t len) {
+		int err = sendto(m_sock, data, len, 0, (sockaddr*)&m_broadcastDest, sizeof(m_broadcastDest));
+		return err >= 0;
+    }
+
+    uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint8_t sequence, uint64_t target) {
+		LIFXFullHeader getService{
+			LIFXFrameHeader(HEADER_SIZE + payloadSize, PROTOCOL, ADDRESSABLE, TAGGED, ORIGIN, m_sourceId),
+			LIFXFrameAddress(target, false, requireAck, sequence),
+			LIFXProtocolHeader(packetType)
+		};
+        uint8_t *data = new uint8_t[HEADER_SIZE + payloadSize];
+		memcpy(data, &getService, HEADER_SIZE);
+        return data;
+    }
+
+    LIFX_UDP::SET_RESP LIFX_UDP::_SetPower(Payloads::SetPower payload, const Device *dev, bool requireAck) {
+
+        // since SetPower has just a uint16_t
+        constexpr int totalPacketSize = HEADER_SIZE + 2;
+
+		uint8_t* data = GetSendHeader(21,2,requireAck,67,Device::GetTarget(dev));
+        
+        memcpy(data + HEADER_SIZE, &payload.level, 2);
+
+		bool res = SendBroadcast(data, totalPacketSize);
+		delete[] data;
+		if(!res) return SET_RESP::SENT_FAILED;
+		if(requireAck) ReceivePacket();
+		return SET_RESP::SENT_SUCCESS;
+    }
 }
 

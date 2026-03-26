@@ -1,7 +1,9 @@
 #pragma once
 
-//ms
-#define SEND_TIMEOUT 50
+#define UDP_PORT 56700
+//receiving data buffer
+#define BUFFER_SIZE 256
+#define SOCKET_TIMEOUT_MS 2000
 #define MAX_SEND_TRIES 5
 
 //header constants

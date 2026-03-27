@@ -1,8 +1,4 @@
 #include "LIFX.h"
-
-
-#include "LIFXConfig.h"
-
 #include <string.h>
 #include <lwip/netdb.h>
 #include <lwip/inet.h>
@@ -85,6 +81,7 @@ struct LIFXFrameAddress{
 		return byte7 & 0x02;
 	}
 
+	uint8_t GetSequence(){return GetSequence(packedPart);}
 	static uint8_t GetSequence(LIFXFrameAddressPart _packedPart){
 		return  _packedPart >> (7*8) &0xFF;
 	}
@@ -165,6 +162,12 @@ struct LIFXFullHeader {
 namespace LIFX{
 	uint32_t LIFX::LIFX_UDP::m_sourceId = 0;
 
+	inline LIFXFullHeader ParseHeader(uint8_t* data){
+		LIFXFullHeader header;
+		memcpy(&header, data, HEADER_SIZE);
+		return header;
+	}
+
     LIFX_UDP::UDP_SETUP_RESP LIFX_UDP::Begin() {
 		m_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 		if (m_sock < 0) {
@@ -189,35 +192,63 @@ namespace LIFX{
 		if (bind(m_sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 			return UDP_SETUP_RESP::BIND_FAIL;
 		}
-		
-		m_broadcastDest.sin_family = AF_INET;
-		m_broadcastDest.sin_port = htons(UDP_PORT);
-		m_broadcastDest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 
 		return UDP_SETUP_RESP::SUCCESS;
     }
 
-    void LIFX_UDP::ReceivePacket() {
-		uint8_t buffer[BUFFER_SIZE];
+    int LIFX_UDP::DiscoverDevices() {
+		//GetService header
+		uint8_t* data = GetSendHeader(2,0,false,67,0);
+		bool res = SendMessage(data, HEADER_SIZE, 0);
+		delete[] data;
 
-		sockaddr_in sourceAddr;
-		socklen_t addrLen = sizeof(sourceAddr);
-		
-		int len = recvfrom(m_sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&sourceAddr, &addrLen);
-
-		if (len < 0) {
-			//Serial.println("No data (timeout)");
-			return;
-		}
-
-		char ipStr[16];
-		inet_ntoa_r(sourceAddr.sin_addr, ipStr, sizeof(ipStr));
-		//print it
+		// uint8_t buffer[BUFFER_SIZE];
+		// int len = ReceivePacket(buffer, BUFFER_SIZE);
+		// if(len < 0) return -1;
+        return 0;
     }
 
-    bool LIFX_UDP::SendBroadcast(const uint8_t *data, size_t len) {
-		int err = sendto(m_sock, data, len, 0, (sockaddr*)&m_broadcastDest, sizeof(m_broadcastDest));
+    int LIFX_UDP::ReceivePacket(uint8_t* buffer, uint32_t size) {
+		sockaddr_in sourceAddr;
+		socklen_t addrLen = sizeof(sourceAddr);
+		return recvfrom(m_sock, buffer, size, 0, (sockaddr*)&sourceAddr, &addrLen);
+    }
+
+    LIFX_UDP::UDP_RESP LIFX_UDP::WaitForAck(uint8_t seq) {
+		uint8_t buffer[BUFFER_SIZE];
+		int len = ReceivePacket(buffer, BUFFER_SIZE);
+		if(len < 0) {
+			printf("len < 0\n");
+			return UDP_RESP::ACK_TIMED_OUT;
+		}
+
+		LIFXFullHeader header = ParseHeader(buffer);
+		
+		if(seq != header.frameAddress.GetSequence()) {
+			printf("seq %d != header seq %d\n", seq, header.frameAddress.GetSequence());
+			return UDP_RESP::ACK_WRONG_MSG;
+		}
+
+        return UDP_RESP::SUCCESS;
+    }
+
+    bool LIFX_UDP::SendPacket(const uint8_t *data, size_t len, sockaddr_in& dest) {
+        int err = sendto(m_sock, data, len, 0, (sockaddr*)&dest, sizeof(dest));
 		return err >= 0;
+    }
+
+
+    bool LIFX_UDP::SendMessage(const uint8_t *data, size_t len, const Device *dev) {
+		sockaddr_in dest;
+		dest.sin_family = AF_INET;
+		if(dev == nullptr){
+			dest.sin_port = htons(UDP_PORT);
+			dest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+		}  else{
+			dest.sin_port = htons(dev->port);
+			dest.sin_addr.s_addr = htonl(dev->ipAddr);
+		}
+		return SendPacket(data, len, dest);
     }
 
     uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint8_t sequence, uint64_t target) {
@@ -231,20 +262,24 @@ namespace LIFX{
         return data;
     }
 
-    LIFX_UDP::SET_RESP LIFX_UDP::_SetPower(Payloads::SetPower payload, const Device *dev, bool requireAck) {
-
+    LIFX_UDP::UDP_RESP LIFX_UDP::_SetPower(Payloads::SetPower payload, const Device *dev, bool requireAck) {
         // since SetPower has just a uint16_t
         constexpr int totalPacketSize = HEADER_SIZE + 2;
 
-		uint8_t* data = GetSendHeader(21,2,requireAck,67,Device::GetTarget(dev));
-        
+		//Set power packet is #21
+		uint8_t* data = GetSendHeader(21,2,requireAck,++m_sequence,Device::GetTarget(dev));
         memcpy(data + HEADER_SIZE, &payload.level, 2);
 
-		bool res = SendBroadcast(data, totalPacketSize);
+		bool res = SendMessage(data, totalPacketSize, dev);
 		delete[] data;
-		if(!res) return SET_RESP::SENT_FAILED;
-		if(requireAck) ReceivePacket();
-		return SET_RESP::SENT_SUCCESS;
+		if(!res) return UDP_RESP::SENT_FAILED;
+		if(requireAck) {
+			UDP_RESP res = WaitForAck(m_sequence);
+			if(res != UDP_RESP::SUCCESS){
+				return UDP_RESP::ACK_TIMED_OUT;
+			} 
+		}
+		return UDP_RESP::SUCCESS;
     }
 }
 

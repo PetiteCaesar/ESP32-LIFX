@@ -166,6 +166,7 @@ namespace LIFX{
 		LIFXFullHeader header;
 		memcpy(&header, data, HEADER_SIZE);
 		return header;
+		
 	}
 
     LIFX_UDP::UDP_SETUP_RESP LIFX_UDP::Begin() {
@@ -193,6 +194,8 @@ namespace LIFX{
 			return UDP_SETUP_RESP::BIND_FAIL;
 		}
 
+		xTaskCreate(UDPPollTask, "UDPPollTask",10000, this, 1,&m_pollTask);
+
 		return UDP_SETUP_RESP::SUCCESS;
     }
 
@@ -215,28 +218,28 @@ namespace LIFX{
     }
 
     LIFX_UDP::UDP_RESP LIFX_UDP::WaitForAck(uint8_t seq) {
-		uint8_t buffer[BUFFER_SIZE];
-		int len = ReceivePacket(buffer, BUFFER_SIZE);
-		if(len < 0) {
-			printf("len < 0\n");
-			return UDP_RESP::ACK_TIMED_OUT;
-		}
+		// uint8_t buffer[BUFFER_SIZE];
+		// int len = ReceivePacket(buffer, BUFFER_SIZE);
+		// if(len < 0) {
+		// 	printf("len < 0\n");
+		// 	return UDP_RESP::ACK_TIMED_OUT;
+		// }
 
-		LIFXFullHeader header = ParseHeader(buffer);
+		// LIFXFullHeader header = ParseHeader(buffer);
 		
-		if(seq != header.frameAddress.GetSequence()) {
-			printf("seq %d != header seq %d\n", seq, header.frameAddress.GetSequence());
-			return UDP_RESP::ACK_WRONG_MSG;
-		}
+		// if(seq != header.frameAddress.GetSequence()) {
+		// 	printf("seq %d != header seq %d\n", seq, header.frameAddress.GetSequence());
+		// 	return UDP_RESP::ACK_WRONG_MSG;
+		// }
 
         return UDP_RESP::SUCCESS;
     }
 
     bool LIFX_UDP::SendPacket(const uint8_t *data, size_t len, sockaddr_in& dest) {
         int err = sendto(m_sock, data, len, 0, (sockaddr*)&dest, sizeof(dest));
+		printf("Sendto err: %d\n", err);
 		return err >= 0;
     }
-
 
     bool LIFX_UDP::SendMessage(const uint8_t *data, size_t len, const Device *dev) {
 		sockaddr_in dest;
@@ -251,12 +254,32 @@ namespace LIFX{
 		return SendPacket(data, len, dest);
     }
 
+    void LIFX_UDP::UDPPollTask(void *data) {
+		LIFX_UDP& lu = *(LIFX_UDP*)data;
+		fd_set fds;
+		FD_ZERO(&fds);
+		FD_SET(lu.m_sock, &fds);
+		for(;;){
+			fd_set readfds = fds;
+
+			select(lu.m_sock + 1, &readfds, NULL, NULL, NULL);
+
+			if (FD_ISSET(lu.m_sock, &readfds)) {
+				uint8_t buffer[BUFFER_SIZE];
+				lu.ReceivePacket(buffer, BUFFER_SIZE);
+				LIFXFullHeader header = ParseHeader(buffer);
+				printf("header seq %d, header srcId %d\n", header.frameAddress.GetSequence(),header.frameHeader.source);
+			}
+		}
+    }
+
     uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint8_t sequence, uint64_t target) {
 		LIFXFullHeader getService{
 			LIFXFrameHeader(HEADER_SIZE + payloadSize, PROTOCOL, ADDRESSABLE, TAGGED, ORIGIN, m_sourceId),
 			LIFXFrameAddress(target, false, requireAck, sequence),
 			LIFXProtocolHeader(packetType)
 		};
+		
         uint8_t *data = new uint8_t[HEADER_SIZE + payloadSize];
 		memcpy(data, &getService, HEADER_SIZE);
         return data;
@@ -273,13 +296,13 @@ namespace LIFX{
 		bool res = SendMessage(data, totalPacketSize, dev);
 		delete[] data;
 		if(!res) return UDP_RESP::SENT_FAILED;
-		if(requireAck) {
-			UDP_RESP res = WaitForAck(m_sequence);
-			if(res != UDP_RESP::SUCCESS){
-				return UDP_RESP::ACK_TIMED_OUT;
-			} 
-		}
-		return UDP_RESP::SUCCESS;
+		// if(requireAck) {
+		// 	UDP_RESP res = WaitForAck(m_sequence);
+		// 	if(res != UDP_RESP::SUCCESS){
+		// 		return UDP_RESP::ACK_TIMED_OUT;
+		// 	} 
+		// }
+		return UDP_RESP::SENT_SUCCESS;
     }
 }
 

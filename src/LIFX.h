@@ -22,6 +22,7 @@ namespace LIFX{
         
         enum class UDP_RESP{
             SUCCESS,
+            SENT_SUCCESS,
             SENT_FAILED,
             RECEIVE_TIMED_OUT,
             ACK_TIMED_OUT,
@@ -70,6 +71,8 @@ namespace LIFX{
         bool SendPacket(const uint8_t* data, size_t len, sockaddr_in& dest);
         bool SendMessage(const uint8_t* data, size_t len, const Device* dev);
 
+        TaskHandle_t m_pollTask = nullptr;
+        static void UDPPollTask(void *data);
 
         //Creates the packet header. Payload offset should be at HEADER_SIZE
         uint8_t* GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint8_t sequence, uint64_t target);

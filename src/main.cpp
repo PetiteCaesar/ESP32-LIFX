@@ -402,15 +402,13 @@ void setup(){
 	lifx.Begin();
 }
 
-int delayTime = 2000;
+int delayTime = 5000;
 int64_t lastTime = -delayTime;
 bool on = false;
 
 void loop(){
 	if(millis() - lastTime > delayTime){
-		Serial.println(
-			(int)lifx.SetPower((struct LIFX::Payloads::SetPower){on ? 0 : 65535}, true)
-		);
+		(int)lifx.SetPower((struct LIFX::Payloads::SetPower){on ? 0 : 65535}, true);
 		on = !on;
 		lastTime = millis();
 	}

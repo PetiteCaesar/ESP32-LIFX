@@ -12,3 +12,7 @@
 #define ADDRESSABLE true
 #define TAGGED false
 #define PROTOCOL 1024
+
+//Other constants
+#define DISCOVER_SOURCE_ID 6767
+#define SET_SOURCE_ID 41

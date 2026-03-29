@@ -3,7 +3,7 @@
 #include "Payloads.h"
 #include "LIFXConfig.h"
 #include <lwip/sockets.h>
-
+#include <functional>
 
 namespace LIFX{
     struct Device{
@@ -19,7 +19,17 @@ namespace LIFX{
 
     class LIFX_UDP{
     public:
-        
+
+        //public facing header
+        struct DeviceHeader{
+            uint16_t size;
+            uint32_t source;
+            uint64_t target;
+            uint8_t sequence;
+            uint16_t type;
+        }; 
+
+        typedef std::function<void(DeviceHeader&,uint8_t* payload, uint16_t payloadType)> GetFunction;  
         enum class UDP_RESP{
             SUCCESS,
             SENT_SUCCESS,
@@ -44,9 +54,13 @@ namespace LIFX{
         
         UDP_SETUP_RESP Begin();
 
-        //Broadcasts a GetService packet and returns the number of devices discovered
-        //Call before doing anything, and whenever you want to update the devices list
-        int DiscoverDevices();
+        //returns true of query was sent, or false if already discovering or send failed
+        //NOTE: Will reset currently discovered devices
+        bool DiscoverDevices();
+
+        void SetGetFunction(GetFunction& onGet){
+            m_onGetFunction = onGet;
+        }
 
         UDP_RESP SetPower(Payloads::SetPower payload, const Device& device, bool requireAck = true){
             return _SetPower(payload,&device,requireAck);
@@ -58,12 +72,14 @@ namespace LIFX{
         }
 
 
-
     private:
-
-        Device m_devices[MAX_DEVICES];
-        uint16_t m_discoveredDevices;
-
+        
+        struct DeviceManager{
+            Device devices[MAX_DEVICES];
+            uint16_t discoveredDevices;
+            uint64_t lastAddTime;
+            bool discovering;
+        } m_deviceManager;
         int m_sock;
         
         int ReceivePacket(uint8_t* buffer, uint32_t size);
@@ -71,17 +87,20 @@ namespace LIFX{
         bool SendPacket(const uint8_t* data, size_t len, sockaddr_in& dest);
         bool SendMessage(const uint8_t* data, size_t len, const Device* dev);
 
+        GetFunction m_onGetFunction;
+
         TaskHandle_t m_pollTask = nullptr;
         static void UDPPollTask(void *data);
 
         //Creates the packet header. Payload offset should be at HEADER_SIZE
-        uint8_t* GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint8_t sequence, uint64_t target);
+        uint8_t* GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target);
 
         //true if successfully sent msg, false if failed, or 
         UDP_RESP _SetPower(Payloads::SetPower payload, const Device* dev, bool requireAck);
 
         static uint32_t m_sourceId;
         uint8_t m_sequence = 0;
+
     };
 
     class LIFX_HTTP{

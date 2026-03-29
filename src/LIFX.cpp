@@ -81,7 +81,7 @@ struct LIFXFrameAddress{
 		return byte7 & 0x02;
 	}
 
-	uint8_t GetSequence(){return GetSequence(packedPart);}
+	uint8_t GetSequence() const {return GetSequence(packedPart);}
 	static uint8_t GetSequence(LIFXFrameAddressPart _packedPart){
 		return  _packedPart >> (7*8) &0xFF;
 	}
@@ -160,6 +160,18 @@ struct LIFXFullHeader {
 
 
 namespace LIFX{
+
+	LIFX_UDP::DeviceHeader GetHeaderView(const LIFXFullHeader& header){
+		return {
+			header.frameHeader.size,
+			header.frameHeader.source,
+			header.frameAddress.target,
+			header.frameAddress.GetSequence(),
+			header.protocolHeader.type
+		};
+	}
+
+
 	uint32_t LIFX::LIFX_UDP::m_sourceId = 0;
 
 	inline LIFXFullHeader ParseHeader(uint8_t* data){
@@ -199,24 +211,14 @@ namespace LIFX{
 		return UDP_SETUP_RESP::SUCCESS;
     }
 
-    int LIFX_UDP::DiscoverDevices() {
-		//GetService header
-		uint8_t* data = GetSendHeader(2,0,false,67,0);
-		bool res = SendMessage(data, HEADER_SIZE, 0);
-		delete[] data;
-
-		// uint8_t buffer[BUFFER_SIZE];
-		// int len = ReceivePacket(buffer, BUFFER_SIZE);
-		// if(len < 0) return -1;
-        return 0;
-    }
-
+	//TODO: Remove
     int LIFX_UDP::ReceivePacket(uint8_t* buffer, uint32_t size) {
 		sockaddr_in sourceAddr;
 		socklen_t addrLen = sizeof(sourceAddr);
 		return recvfrom(m_sock, buffer, size, 0, (sockaddr*)&sourceAddr, &addrLen);
     }
 
+	//TODO: REMOVE
     LIFX_UDP::UDP_RESP LIFX_UDP::WaitForAck(uint8_t seq) {
 		// uint8_t buffer[BUFFER_SIZE];
 		// int len = ReceivePacket(buffer, BUFFER_SIZE);
@@ -254,28 +256,67 @@ namespace LIFX{
 		return SendPacket(data, len, dest);
     }
 
+
+	bool LIFX_UDP::DiscoverDevices() {
+		if(m_deviceManager.discovering) return false;
+		//GetService header
+		uint8_t* data = GetSendHeader(2,0,false,DISCOVER_SOURCE_ID,0,0);
+		bool err = SendMessage(data, HEADER_SIZE, 0);
+		delete[] data;
+		if(err < 0) return false;
+		m_deviceManager.discovering = true;
+		m_deviceManager.lastAddTime = esp_timer_get_time();
+		m_deviceManager.discoveredDevices = 0;
+        return true;
+    }
+
     void LIFX_UDP::UDPPollTask(void *data) {
 		LIFX_UDP& lu = *(LIFX_UDP*)data;
+		DeviceManager& dm = lu.m_deviceManager;
 		fd_set fds;
 		FD_ZERO(&fds);
 		FD_SET(lu.m_sock, &fds);
+		timeval timeout = {0,0};
 		for(;;){
 			fd_set readfds = fds;
 
-			select(lu.m_sock + 1, &readfds, NULL, NULL, NULL);
+			select(lu.m_sock + 1, &readfds, NULL, NULL, &timeout);
+
+			if(dm.discovering && (esp_timer_get_time() - dm.lastAddTime > SOCKET_TIMEOUT_MS || dm.discoveredDevices == MAX_DEVICES-1)) dm.discovering = false;
 
 			if (FD_ISSET(lu.m_sock, &readfds)) {
 				uint8_t buffer[BUFFER_SIZE];
-				lu.ReceivePacket(buffer, BUFFER_SIZE);
-				LIFXFullHeader header = ParseHeader(buffer);
-				printf("header seq %d, header srcId %d\n", header.frameAddress.GetSequence(),header.frameHeader.source);
+				sockaddr_in sourceAddr;
+				socklen_t addrLen = sizeof(sourceAddr);
+				int res = recvfrom(lu.m_sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&sourceAddr, &addrLen);
+				DeviceHeader header = GetHeaderView(ParseHeader(buffer));
+
+				printf("header seq %d, header srcId %d\n", header.sequence,header.source);
+
+				if(dm.discovering && header.source == DISCOVER_SOURCE_ID){
+					dm.lastAddTime = esp_timer_get_time();
+
+					Device newDevice;
+					newDevice.id = header.target;
+					newDevice.service = buffer[HEADER_SIZE];
+					memcpy(&newDevice.port, buffer + HEADER_SIZE + 1, sizeof(uint32_t));
+					newDevice.ipAddr = ntohl(sourceAddr.sin_addr.s_addr);
+
+					dm.devices[dm.discoveredDevices-1] = newDevice;
+					dm.discoveredDevices++;
+					
+				} else{
+
+				} 
+
 			}
+			vTaskDelay(3);
 		}
     }
 
-    uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint8_t sequence, uint64_t target) {
+    uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target) {
 		LIFXFullHeader getService{
-			LIFXFrameHeader(HEADER_SIZE + payloadSize, PROTOCOL, ADDRESSABLE, TAGGED, ORIGIN, m_sourceId),
+			LIFXFrameHeader(HEADER_SIZE + payloadSize, PROTOCOL, ADDRESSABLE, TAGGED, ORIGIN, sourceId),
 			LIFXFrameAddress(target, false, requireAck, sequence),
 			LIFXProtocolHeader(packetType)
 		};
@@ -290,7 +331,7 @@ namespace LIFX{
         constexpr int totalPacketSize = HEADER_SIZE + 2;
 
 		//Set power packet is #21
-		uint8_t* data = GetSendHeader(21,2,requireAck,++m_sequence,Device::GetTarget(dev));
+		uint8_t* data = GetSendHeader(21,2,requireAck,SET_SOURCE_ID,++m_sequence,Device::GetTarget(dev));
         memcpy(data + HEADER_SIZE, &payload.level, 2);
 
 		bool res = SendMessage(data, totalPacketSize, dev);
@@ -304,5 +345,8 @@ namespace LIFX{
 		// }
 		return UDP_RESP::SENT_SUCCESS;
     }
+
+
+
 }
 

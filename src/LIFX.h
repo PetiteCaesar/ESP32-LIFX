@@ -12,6 +12,14 @@ namespace LIFX{
         uint32_t port;
         uint32_t ipAddr;
 
+        static bool IsValid(const Device& dev){
+            return dev.id != 0
+                && dev.service != 0
+                && dev.port != 0
+                && dev.ipAddr != 0;
+        }
+        private:
+        friend class LIFX_UDP;
         static uint64_t GetTarget(const Device* dev){
             return (dev == nullptr) ? 0 : dev->id;
         } 
@@ -57,6 +65,13 @@ namespace LIFX{
         //returns true of query was sent, or false if already discovering or send failed
         //NOTE: Will reset currently discovered devices
         bool DiscoverDevices();
+        bool DiscoverDevicesBlocking();
+        bool StillDiscovering();
+        //Returns the number of discovered devices
+        uint32_t GetDiscoveredDevices();
+        //If the id is invalid, it will return a device with
+        //all zeros. Check if its invalid using Device::IsValid(dev)
+        Device GetDevice(uint32_t id);
 
         void SetGetFunction(GetFunction& onGet){
             m_onGetFunction = onGet;
@@ -71,6 +86,15 @@ namespace LIFX{
             return _SetPower(payload,nullptr,requireAck);
         }
 
+        UDP_RESP SetLightPower(Payloads::SetLightPower payload, const Device& device, bool requireAck = true){
+            return _SetLightPower(payload,&device,requireAck);
+        }
+        
+        //will broadcast to all devices discovered by DiscoverDevices
+        UDP_RESP SetLightPower(Payloads::SetLightPower payload, bool requireAck = true){
+            return _SetLightPower(payload,nullptr,requireAck);
+        }
+
 
     private:
         
@@ -82,8 +106,6 @@ namespace LIFX{
         } m_deviceManager;
         int m_sock;
         
-        int ReceivePacket(uint8_t* buffer, uint32_t size);
-        UDP_RESP WaitForAck(uint8_t seq);
         bool SendPacket(const uint8_t* data, size_t len, sockaddr_in& dest);
         bool SendMessage(const uint8_t* data, size_t len, const Device* dev);
 
@@ -93,10 +115,13 @@ namespace LIFX{
         static void UDPPollTask(void *data);
 
         //Creates the packet header. Payload offset should be at HEADER_SIZE
-        uint8_t* GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target);
+        //Target should be 0 when tagged is 0, as it is ignored
+        //(and for some reason not having it zero when not tagged caused inconsistencies)
+        uint8_t* GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target, bool tagged);
 
         //true if successfully sent msg, false if failed, or 
         UDP_RESP _SetPower(Payloads::SetPower payload, const Device* dev, bool requireAck);
+        UDP_RESP _SetLightPower(Payloads::SetLightPower payload, const Device* dev, bool requireAck);
 
         static uint32_t m_sourceId;
         uint8_t m_sequence = 0;

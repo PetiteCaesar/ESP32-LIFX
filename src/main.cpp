@@ -382,6 +382,10 @@
 
 LIFX::LIFX_UDP lifx;
 
+LIFX::Device d1;
+LIFX::Device d2;
+
+
 void setup(){
 	Serial.begin(115200);
 	WiFi.begin(SSID,PASSWORD);
@@ -400,15 +404,30 @@ void setup(){
 	}
 
 	lifx.Begin();
+	delay(5000);
+	Serial.println("Discovering");
+	lifx.DiscoverDevicesBlocking();
+	Serial.println("Finished discovering");
+
+	d1 = lifx.GetDevice(0);
+	d2 = lifx.GetDevice(1);
+	Serial.printf("D1 valid %d\n", LIFX::Device::IsValid(d1));
+	Serial.printf("D2 valid %d\n", LIFX::Device::IsValid(d2));
+	delay(100);
 }
 
-int delayTime = 5000;
+int delayTime = 1000;
 int64_t lastTime = -delayTime;
 bool on = false;
 
 void loop(){
 	if(millis() - lastTime > delayTime){
-		(int)lifx.SetPower((struct LIFX::Payloads::SetPower){on ? 0 : 65535}, true);
+		// Serial.println("Sending: " + String(
+		// 	(int)lifx.SetLightPower((struct LIFX::Payloads::SetLightPower){on ? 0 : 0xffff, 0},d1, true)
+		// ));
+		lifx.SetLightPower((struct LIFX::Payloads::SetLightPower){on ? 0 : 0xffff, 0},d1, true);
+		// delay(1000);
+		lifx.SetPower((struct LIFX::Payloads::SetPower){on ? 0xffff:0}, d2, true);
 		on = !on;
 		lastTime = millis();
 	}

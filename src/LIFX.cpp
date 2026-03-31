@@ -211,42 +211,28 @@ namespace LIFX{
 		return UDP_SETUP_RESP::SUCCESS;
     }
 
-	//TODO: Remove
-    int LIFX_UDP::ReceivePacket(uint8_t* buffer, uint32_t size) {
-		sockaddr_in sourceAddr;
-		socklen_t addrLen = sizeof(sourceAddr);
-		return recvfrom(m_sock, buffer, size, 0, (sockaddr*)&sourceAddr, &addrLen);
-    }
-
-	//TODO: REMOVE
-    LIFX_UDP::UDP_RESP LIFX_UDP::WaitForAck(uint8_t seq) {
-		// uint8_t buffer[BUFFER_SIZE];
-		// int len = ReceivePacket(buffer, BUFFER_SIZE);
-		// if(len < 0) {
-		// 	printf("len < 0\n");
-		// 	return UDP_RESP::ACK_TIMED_OUT;
-		// }
-
-		// LIFXFullHeader header = ParseHeader(buffer);
+	uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target, bool tagged) {
+		LIFXFullHeader getService{
+			LIFXFrameHeader(HEADER_SIZE + payloadSize, PROTOCOL, ADDRESSABLE, tagged, ORIGIN, sourceId),
+			LIFXFrameAddress(target, false, requireAck, sequence),
+			LIFXProtocolHeader(packetType)
+		};
 		
-		// if(seq != header.frameAddress.GetSequence()) {
-		// 	printf("seq %d != header seq %d\n", seq, header.frameAddress.GetSequence());
-		// 	return UDP_RESP::ACK_WRONG_MSG;
-		// }
-
-        return UDP_RESP::SUCCESS;
+        uint8_t *data = new uint8_t[HEADER_SIZE + payloadSize];
+		memcpy(data, &getService, HEADER_SIZE);
+        return data;
     }
 
     bool LIFX_UDP::SendPacket(const uint8_t *data, size_t len, sockaddr_in& dest) {
         int err = sendto(m_sock, data, len, 0, (sockaddr*)&dest, sizeof(dest));
-		printf("Sendto err: %d\n", err);
+		// printf("Sendto err: %d\n", err);
 		return err >= 0;
     }
 
     bool LIFX_UDP::SendMessage(const uint8_t *data, size_t len, const Device *dev) {
 		sockaddr_in dest;
 		dest.sin_family = AF_INET;
-		if(dev == nullptr){
+		if(dev == nullptr || !Device::IsValid(*dev)){
 			dest.sin_port = htons(UDP_PORT);
 			dest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 		}  else{
@@ -260,7 +246,7 @@ namespace LIFX{
 	bool LIFX_UDP::DiscoverDevices() {
 		if(m_deviceManager.discovering) return false;
 		//GetService header
-		uint8_t* data = GetSendHeader(2,0,false,DISCOVER_SOURCE_ID,0,0);
+		uint8_t* data = GetSendHeader(2, 0, false, DISCOVER_SOURCE_ID, 0, 0, 1);
 		bool err = SendMessage(data, HEADER_SIZE, 0);
 		delete[] data;
 		if(err < 0) return false;
@@ -268,6 +254,28 @@ namespace LIFX{
 		m_deviceManager.lastAddTime = esp_timer_get_time();
 		m_deviceManager.discoveredDevices = 0;
         return true;
+    }
+
+    bool LIFX_UDP::DiscoverDevicesBlocking() {
+		bool res = DiscoverDevices();
+		//loop while waiting like 10ms
+		while(StillDiscovering()) vTaskDelay(10/portTICK_RATE_MS);
+        return res;
+    }
+
+    bool LIFX_UDP::StillDiscovering() {
+        return m_deviceManager.discovering;
+    }
+
+    uint32_t LIFX_UDP::GetDiscoveredDevices() {
+        return m_deviceManager.discoveredDevices;
+    }
+
+    Device LIFX_UDP::GetDevice(uint32_t id) {
+		if(id >= GetDiscoveredDevices()){
+			return Device {0, 0, 0, 0};
+		}
+        return m_deviceManager.devices[id];
     }
 
     void LIFX_UDP::UDPPollTask(void *data) {
@@ -282,7 +290,10 @@ namespace LIFX{
 
 			select(lu.m_sock + 1, &readfds, NULL, NULL, &timeout);
 
-			if(dm.discovering && (esp_timer_get_time() - dm.lastAddTime > SOCKET_TIMEOUT_MS || dm.discoveredDevices == MAX_DEVICES-1)) dm.discovering = false;
+			if(dm.discovering && ((esp_timer_get_time() - dm.lastAddTime) > SOCKET_TIMEOUT_MS*1000 || dm.discoveredDevices == MAX_DEVICES)) {
+				printf("Discovering stopped due to timeout or maxDevs reached\n");
+				dm.discovering = false;
+			}
 
 			if (FD_ISSET(lu.m_sock, &readfds)) {
 				uint8_t buffer[BUFFER_SIZE];
@@ -291,20 +302,27 @@ namespace LIFX{
 				int res = recvfrom(lu.m_sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&sourceAddr, &addrLen);
 				DeviceHeader header = GetHeaderView(ParseHeader(buffer));
 
-				printf("header seq %d, header srcId %d\n", header.sequence,header.source);
+				printf("Recv header seq %d, header srcId %d\n", header.sequence,header.source);
 
 				if(dm.discovering && header.source == DISCOVER_SOURCE_ID){
-					dm.lastAddTime = esp_timer_get_time();
-
+			
 					Device newDevice;
-					newDevice.id = header.target;
 					newDevice.service = buffer[HEADER_SIZE];
-					memcpy(&newDevice.port, buffer + HEADER_SIZE + 1, sizeof(uint32_t));
-					newDevice.ipAddr = ntohl(sourceAddr.sin_addr.s_addr);
-
-					dm.devices[dm.discoveredDevices-1] = newDevice;
-					dm.discoveredDevices++;
+					//seems to send the same device multiple times 
+					//with different services
+					//not sure what its for
+					if(newDevice.service == 1){
+						newDevice.id = header.target;
+						memcpy(&newDevice.port, buffer + HEADER_SIZE + 1, sizeof(uint32_t));
+						newDevice.ipAddr = ntohl(sourceAddr.sin_addr.s_addr);
+						printf("id: %" PRIu64 ", service %" PRIu8 ", ipAddr: %" PRIu32 " port: %d\n",newDevice.id, newDevice.service, newDevice.ipAddr, newDevice.port);
+						printf("Adding device at %d\n", dm.discoveredDevices);
+						dm.devices[dm.discoveredDevices] = newDevice;
+						dm.discoveredDevices++;
+						dm.lastAddTime = esp_timer_get_time();
+					}
 					
+
 				} else{
 
 				} 
@@ -314,39 +332,33 @@ namespace LIFX{
 		}
     }
 
-    uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target) {
-		LIFXFullHeader getService{
-			LIFXFrameHeader(HEADER_SIZE + payloadSize, PROTOCOL, ADDRESSABLE, TAGGED, ORIGIN, sourceId),
-			LIFXFrameAddress(target, false, requireAck, sequence),
-			LIFXProtocolHeader(packetType)
-		};
-		
-        uint8_t *data = new uint8_t[HEADER_SIZE + payloadSize];
-		memcpy(data, &getService, HEADER_SIZE);
-        return data;
-    }
+    
 
     LIFX_UDP::UDP_RESP LIFX_UDP::_SetPower(Payloads::SetPower payload, const Device *dev, bool requireAck) {
         // since SetPower has just a uint16_t
         constexpr int totalPacketSize = HEADER_SIZE + 2;
 
 		//Set power packet is #21
-		uint8_t* data = GetSendHeader(21,2,requireAck,SET_SOURCE_ID,++m_sequence,Device::GetTarget(dev));
+		uint8_t* data = GetSendHeader(21,2,requireAck,m_sourceId,++m_sequence,0, dev==nullptr);// (since tagged = 1 only for broadcast)
         memcpy(data + HEADER_SIZE, &payload.level, 2);
-
 		bool res = SendMessage(data, totalPacketSize, dev);
 		delete[] data;
 		if(!res) return UDP_RESP::SENT_FAILED;
-		// if(requireAck) {
-		// 	UDP_RESP res = WaitForAck(m_sequence);
-		// 	if(res != UDP_RESP::SUCCESS){
-		// 		return UDP_RESP::ACK_TIMED_OUT;
-		// 	} 
-		// }
 		return UDP_RESP::SENT_SUCCESS;
     }
 
+    LIFX_UDP::UDP_RESP LIFX_UDP::_SetLightPower(Payloads::SetLightPower payload, const Device *dev, bool requireAck) {
+		//a u16 + u32
+        constexpr int totalPacketSize = HEADER_SIZE + 6;
 
-
+		//Set light power packet is 117
+		uint8_t* data = GetSendHeader(117,6,requireAck,m_sourceId,++m_sequence,0, dev==nullptr);// (since tagged = 1 only for broadcast)
+        memcpy(data + HEADER_SIZE, &payload.level, 2);
+        memcpy(data + HEADER_SIZE+2, &payload.duration, 4);
+		bool res = SendMessage(data, totalPacketSize, dev);
+		delete[] data;
+		if(!res) return UDP_RESP::SENT_FAILED;
+		return UDP_RESP::SENT_SUCCESS;
+    }
 }
 

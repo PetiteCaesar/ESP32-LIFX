@@ -336,11 +336,11 @@ namespace LIFX{
 
     LIFX_UDP::UDP_RESP LIFX_UDP::_SetPower(Payloads::SetPower payload, const Device *dev, bool requireAck) {
         // since SetPower has just a uint16_t
-        constexpr int totalPacketSize = HEADER_SIZE + 2;
+        constexpr int totalPacketSize = HEADER_SIZE + payload.GetSize();
 
 		//Set power packet is #21
-		uint8_t* data = GetSendHeader(21,2,requireAck,m_sourceId,++m_sequence,0, dev==nullptr);// (since tagged = 1 only for broadcast)
-        memcpy(data + HEADER_SIZE, &payload.level, 2);
+		uint8_t* data = GetSendHeader(21,payload.GetSize(),requireAck,m_sourceId,++m_sequence,0, dev==nullptr);// (since tagged = 1 only for broadcast)
+        payload.SerialiseTo(data);
 		bool res = SendMessage(data, totalPacketSize, dev);
 		delete[] data;
 		if(!res) return UDP_RESP::SENT_FAILED;
@@ -349,12 +349,11 @@ namespace LIFX{
 
     LIFX_UDP::UDP_RESP LIFX_UDP::_SetLightPower(Payloads::SetLightPower payload, const Device *dev, bool requireAck) {
 		//a u16 + u32
-        constexpr int totalPacketSize = HEADER_SIZE + 6;
-
+        constexpr int totalPacketSize = HEADER_SIZE + payload.GetSize();
 		//Set light power packet is 117
-		uint8_t* data = GetSendHeader(117,6,requireAck,m_sourceId,++m_sequence,0, dev==nullptr);// (since tagged = 1 only for broadcast)
-        memcpy(data + HEADER_SIZE, &payload.level, 2);
-        memcpy(data + HEADER_SIZE+2, &payload.duration, 4);
+		uint8_t* data = GetSendHeader(117,payload.GetSize(),requireAck,m_sourceId,++m_sequence,0, dev==nullptr);// (since tagged = 1 only for broadcast)
+		payload.SerialiseTo(data+HEADER_SIZE);
+
 		bool res = SendMessage(data, totalPacketSize, dev);
 		delete[] data;
 		if(!res) return UDP_RESP::SENT_FAILED;

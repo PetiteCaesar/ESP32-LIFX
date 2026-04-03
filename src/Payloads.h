@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string.h>
 #include "lwip/inet.h"
 
 namespace LIFX{
@@ -9,7 +10,21 @@ namespace LIFX{
         uint16_t saturation;
         uint16_t brightness;
         uint16_t kelvin;
+        void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &hue, sizeof(hue));
+                __writeBytes(data, &saturation, sizeof(saturation));
+                __writeBytes(data, &brightness, sizeof(brightness));
+                __writeBytes(data, &kelvin, sizeof(kelvin));
+            }
+        inline constexpr uint16_t GetSize() const{
+            return sizeof(hue) + sizeof(saturation) + sizeof(brightness) + sizeof(kelvin);
+        }
     };
+
+    inline void __writeBytes(uint8_t*& dst, const void* src, size_t size) {
+        memcpy(dst, src, size);
+        dst += size;
+    }
 
     //Payloads used when sending messages to an LIFX device
     namespace Payloads{
@@ -18,10 +33,22 @@ namespace LIFX{
 
         struct SetPower{
             uint16_t level;//0 = off, 65535 = on
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &level, sizeof(level));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(level);
+            }
         };
 
         struct SetLabel{
             char label[32];//The new label on the device
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &label, sizeof(label));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(label);
+            }
         };
 
         struct SetLocation{
@@ -41,7 +68,15 @@ namespace LIFX{
 
         struct SetColor{
             Colour colour;
-            uint32_t duration;//time in milliseconds to transition to new HSBK 
+            uint32_t duration;//time in milliseconds to transition to new HSBK
+            void SerialiseTo(uint8_t* data) const{
+                colour.SerialiseTo(data);
+                data += colour.GetSize();
+                __writeBytes(data, &duration, sizeof(duration));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return colour.GetSize() + sizeof(duration);
+            } 
         };
 
         struct SetWaveform{
@@ -56,6 +91,13 @@ namespace LIFX{
         struct SetLightPower{
             uint16_t level;//0 = off, 65535 = on 
             uint32_t duration;//time in milliseconds to transition to new level
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &level, sizeof(level));
+                __writeBytes(data, &duration, sizeof(duration));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(level) + sizeof(duration);
+            }
         };
         
         struct SetWaveformOptional{
@@ -73,16 +115,36 @@ namespace LIFX{
 
         struct SetInfrared{
             uint16_t brightness;//0= no infrared, 65535 = the most infrared O_O
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &brightness, sizeof(brightness));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(brightness);
+            }
         };
 
         struct SetHevCycle{
             bool enable;//set cycles on or off
             uint32_t durationS;//duration in seconds the cycle should last for. 0 will use the default set by SetHevCycleConfiguration
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &enable, sizeof(enable));
+                __writeBytes(data, &durationS, sizeof(durationS));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(enable) + sizeof(durationS);
+            }
         };
 
         struct SetHevCycleConfiguration{
             bool indication;//
             uint32_t durationS;//The default duration used by SetHevCycle;
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &indication, sizeof(indication));
+                __writeBytes(data, &durationS, sizeof(durationS));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(indication) + sizeof(durationS);
+            }
         };
         //End Light
 
@@ -102,6 +164,22 @@ namespace LIFX{
             uint32_t speed;//time for one cycle in milliseconds
             uint64_t duration;//The time the effect will run for in nanoseconds
             uint8_t parameters[32];//As said in the docs: "This field is 8 `4` byte fields which change meaning based on the effect that is running. When the effect is MOVE only the second field is used and is a Uint32 representing the DIRECTION enum. This field is currently ignored for all other multizone effects." The direction enum being: 0=REVERSED, 1=NOT_REVERSED
+            
+            //data must have GetSize space left
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &instanceId, sizeof(instanceId));
+                __writeBytes(data, &type, sizeof(type));
+                __writeBytes(data, &speed, sizeof(speed));
+                __writeBytes(data, &duration, sizeof(duration));
+                __writeBytes(data, &parameters, sizeof(parameters));
+            }
+            inline constexpr uint16_t GetSize() const {
+                return sizeof(instanceId)
+                    + sizeof(type)
+                    + sizeof(speed)
+                    + sizeof(duration)
+                    + sizeof(parameters);
+            }
         };
 
         struct SetExtendedColorZones{
@@ -118,12 +196,19 @@ namespace LIFX{
         struct SetRPower{
             uint8_t relayIndex;//The relay on the switch starting from 0
             uint16_t level;//The new level of the relay
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &relayIndex, sizeof(relayIndex));
+                __writeBytes(data, &level, sizeof(level));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(relayIndex) + sizeof(level);
+            }
         };
         //End Relay
 
         //Tile
 
-        //i dont even have any to test with, and theres "alot" here
+        //i dont even have any to test with, and theres "allot" here
     }
 
     namespace Response{

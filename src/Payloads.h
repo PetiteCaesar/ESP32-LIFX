@@ -5,6 +5,11 @@
 
 namespace LIFX{
 
+    inline void __writeBytes(uint8_t*& dst, const void* src, size_t size) {
+        memcpy(dst, src, size);
+        dst += size;
+    }
+
     struct Colour{
         uint16_t hue;
         uint16_t saturation;
@@ -21,10 +26,7 @@ namespace LIFX{
         }
     };
 
-    inline void __writeBytes(uint8_t*& dst, const void* src, size_t size) {
-        memcpy(dst, src, size);
-        dst += size;
-    }
+
 
     //Payloads used when sending messages to an LIFX device
     namespace Payloads{

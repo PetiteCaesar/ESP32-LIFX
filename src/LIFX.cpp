@@ -109,50 +109,49 @@ struct LIFXFullHeader {
 	LIFXProtocolHeader protocolHeader;
 
 	//thanks chat
-	// void Print() const {
-	// 	// ---- Frame Header ----
-	// 	Serial.printf("=== Frame Header ===\n");
-	// 	Serial.printf("Size: %u\n", frameHeader.size);
-	// 	Serial.printf("Protocol: %u\n",
-	// 		LIFXFrameHeader::GetProtocol(frameHeader.packedPart));
-	// 	Serial.printf("Addressable: %u\n",
-	// 		LIFXFrameHeader::GetAddressable(frameHeader.packedPart));
-	// 	Serial.printf("Tagged: %u\n",
-	// 		LIFXFrameHeader::GetTagged(frameHeader.packedPart));
-	// 	Serial.printf("Origin: %u\n",
-	// 		LIFXFrameHeader::GetOrigin(frameHeader.packedPart));
-	// 	Serial.printf("Source: %lu\n\n", frameHeader.source);
+	void Print() const {
+		// ---- Frame Header ----
+		printf("=== Frame Header ===\n");
+		printf("Size: %u\n", frameHeader.size);
+		printf("Protocol: %u\n",
+			LIFXFrameHeader::GetProtocol(frameHeader.packedPart));
+		printf("Addressable: %u\n",
+			LIFXFrameHeader::GetAddressable(frameHeader.packedPart));
+		printf("Tagged: %u\n",
+			LIFXFrameHeader::GetTagged(frameHeader.packedPart));
+		printf("Origin: %u\n",
+			LIFXFrameHeader::GetOrigin(frameHeader.packedPart));
+		printf("Source: %lu\n\n", frameHeader.source);
 
-	// 	// ---- Frame Address ----
-	// 	Serial.printf("=== Frame Address ===\n");
-	// 	Serial.printf("Target: %llu\n", frameAddress.target);
-	// 	Serial.printf("Res Required: %u\n",
-	// 		LIFXFrameAddress::GetResRequired(frameAddress.packedPart));
-	// 	Serial.printf("Ack Required: %u\n",
-	// 		LIFXFrameAddress::GetAckRequired(frameAddress.packedPart));
-	// 	Serial.printf("Sequence: %u\n",
-	// 		LIFXFrameAddress::GetSequence(frameAddress.packedPart));
+		// ---- Frame Address ----
+		printf("=== Frame Address ===\n");
+		printf("Target: %llu\n", frameAddress.target);
+		printf("Res Required: %u\n",
+			LIFXFrameAddress::GetResRequired(frameAddress.packedPart));
+		printf("Ack Required: %u\n",
+			LIFXFrameAddress::GetAckRequired(frameAddress.packedPart));
+		printf("Sequence: %u\n",
+			LIFXFrameAddress::GetSequence(frameAddress.packedPart));
 
-	// 	// Use provided GetTargets
-	// 	uint8_t targetBytes[8] = {0};
-	// 	LIFXFrameAddress::GetTargets(frameAddress.target, targetBytes);
+		// Use provided GetTargets
+		uint8_t targetBytes[8] = {0};
+		LIFXFrameAddress::GetTargets(frameAddress.target, targetBytes);
 
-	// 	Serial.printf("Target Bytes: ");
-	// 	for (int i = 0; i < 7; i++) {
-	// 		Serial.printf("%u ", targetBytes[i]);
-	// 	}
-	// 	Serial.printf("\n\n");
+		printf("Target Bytes: ");
+		for (int i = 0; i < 7; i++) {
+			printf("%u ", targetBytes[i]);
+		}
+		printf("\n\n");
 
-	// 	// ---- Protocol Header ----
-	// 	Serial.printf("=== Protocol Header ===\n");
-	// 	Serial.printf("Reserved1: %llu\n", protocolHeader._reserved1);
-	// 	Serial.printf("Type: %u\n", protocolHeader.type);
-	// 	Serial.printf("Reserved2: %u\n", protocolHeader._reserved2);
+		// ---- Protocol Header ----
+		printf("=== Protocol Header ===\n");
+		printf("Reserved1: %llu\n", protocolHeader._reserved1);
+		printf("Type: %u\n", protocolHeader.type);
+		printf("Reserved2: %u\n", protocolHeader._reserved2);
 
-	// 	Serial.printf("========================\n");
-	// }
+		printf("========================\n");
+	}
 
-	
 };
 #pragma pack(pop)
 
@@ -160,6 +159,11 @@ struct LIFXFullHeader {
 
 
 namespace LIFX{
+
+	
+    const uint16_t LIFX_UDP::GetHeaderSize() {
+        return sizeof(LIFXFullHeader);
+    }
 
 	LIFX_UDP::DeviceHeader GetHeaderView(const LIFXFullHeader& header){
 		return {
@@ -216,14 +220,15 @@ namespace LIFX{
 			LIFXFrameHeader(HEADER_SIZE + payloadSize, PROTOCOL, ADDRESSABLE, tagged, ORIGIN, sourceId),
 			LIFXFrameAddress(target, false, requireAck, sequence),
 			LIFXProtocolHeader(packetType)
-		};
-		
+		};		
         uint8_t *data = new uint8_t[HEADER_SIZE + payloadSize];
 		memcpy(data, &getService, HEADER_SIZE);
         return data;
     }
 
-    bool LIFX_UDP::SendPacket(const uint8_t *data, size_t len, sockaddr_in& dest) {
+
+    bool LIFX_UDP::SendPacket(const uint8_t *data, size_t len, sockaddr_in &dest)
+    {
         int err = sendto(m_sock, data, len, 0, (sockaddr*)&dest, sizeof(dest));
 		// printf("Sendto err: %d\n", err);
 		return err >= 0;
@@ -300,9 +305,12 @@ namespace LIFX{
 				sockaddr_in sourceAddr;
 				socklen_t addrLen = sizeof(sourceAddr);
 				int res = recvfrom(lu.m_sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&sourceAddr, &addrLen);
-				DeviceHeader header = GetHeaderView(ParseHeader(buffer));
+				auto temp = ParseHeader(buffer);
+				
+				DeviceHeader header = GetHeaderView(temp);
+				
 
-				printf("Recv header seq %d, header srcId %d\n", header.sequence,header.source);
+				printf("Recv header seq %d, header srcId %d, target: %" PRIu64 "\n", header.sequence,header.source,header.target);
 
 				if(dm.discovering && header.source == DISCOVER_SOURCE_ID){
 			
@@ -324,7 +332,7 @@ namespace LIFX{
 					
 
 				} else{
-
+					// temp.Print();
 				} 
 
 			}
@@ -332,32 +340,6 @@ namespace LIFX{
 		}
     }
 
-    
 
-    LIFX_UDP::UDP_RESP LIFX_UDP::_SetPower(Payloads::SetPower payload, const Device *dev, bool requireAck) {
-        // since SetPower has just a uint16_t
-        constexpr int totalPacketSize = HEADER_SIZE + payload.GetSize();
-
-		//Set power packet is #21
-		uint8_t* data = GetSendHeader(21,payload.GetSize(),requireAck,m_sourceId,++m_sequence,0, dev==nullptr);// (since tagged = 1 only for broadcast)
-        payload.SerialiseTo(data);
-		bool res = SendMessage(data, totalPacketSize, dev);
-		delete[] data;
-		if(!res) return UDP_RESP::SENT_FAILED;
-		return UDP_RESP::SENT_SUCCESS;
-    }
-
-    LIFX_UDP::UDP_RESP LIFX_UDP::_SetLightPower(Payloads::SetLightPower payload, const Device *dev, bool requireAck) {
-		//a u16 + u32
-        constexpr int totalPacketSize = HEADER_SIZE + payload.GetSize();
-		//Set light power packet is 117
-		uint8_t* data = GetSendHeader(117,payload.GetSize(),requireAck,m_sourceId,++m_sequence,0, dev==nullptr);// (since tagged = 1 only for broadcast)
-		payload.SerialiseTo(data+HEADER_SIZE);
-
-		bool res = SendMessage(data, totalPacketSize, dev);
-		delete[] data;
-		if(!res) return UDP_RESP::SENT_FAILED;
-		return UDP_RESP::SENT_SUCCESS;
-    }
 }
 

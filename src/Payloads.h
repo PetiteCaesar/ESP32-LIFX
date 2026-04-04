@@ -22,7 +22,10 @@ namespace LIFX{
                 __writeBytes(data, &kelvin, sizeof(kelvin));
             }
         inline constexpr uint16_t GetSize() const{
-            return sizeof(hue) + sizeof(saturation) + sizeof(brightness) + sizeof(kelvin);
+            return sizeof(hue) 
+                + sizeof(saturation) 
+                + sizeof(brightness) 
+                + sizeof(kelvin);
         }
     };
 
@@ -41,6 +44,7 @@ namespace LIFX{
             inline constexpr uint16_t GetSize() const{
                 return sizeof(level);
             }
+            static constexpr uint16_t packetId = 21;
         };
 
         struct SetLabel{
@@ -51,18 +55,37 @@ namespace LIFX{
             inline constexpr uint16_t GetSize() const{
                 return sizeof(label);
             }
+            static constexpr uint16_t packetId = 24;
         };
 
         struct SetLocation{
             uint8_t location[16];//the UUID of the location - Same for each device in the location
             char label[32];//The name of the location
             uint64_t updatedAt;//epoch in nanoseconds for when it was updated
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &location, sizeof(location));
+                __writeBytes(data, &label, sizeof(label));
+                __writeBytes(data, &updatedAt, sizeof(updatedAt));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(location)+sizeof(label)+sizeof(updatedAt);
+            }
+            static constexpr uint16_t packetId = 49;
         };
 
         struct SetGroup{
             uint8_t group[16];//UUID of the group. It should be the same for each device in the group
             char label[32];//Name of the group
             uint64_t updatedAt;//epoch in nanoseconds for when it was updated
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &group, sizeof(group));
+                __writeBytes(data, &label, sizeof(label));
+                __writeBytes(data, &updatedAt, sizeof(updatedAt));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(group)+sizeof(label)+sizeof(updatedAt);
+            }
+            static constexpr uint16_t packetId = 52;
         };
         //End device
 
@@ -79,6 +102,7 @@ namespace LIFX{
             inline constexpr uint16_t GetSize() const{
                 return colour.GetSize() + sizeof(duration);
             } 
+            static constexpr uint16_t packetId = 102;
         };
 
         struct SetWaveform{
@@ -88,6 +112,25 @@ namespace LIFX{
             float cycles;
             int16_t skewRatio;
             uint8_t waveform;//0=SAW, 1=SINE, 2=HALF_SINE, 3=TRIANGLE, 4=PULSE
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &transient, sizeof(transient));
+                colour.SerialiseTo(data);
+                data += colour.GetSize();
+                __writeBytes(data, &period, sizeof(period));
+                __writeBytes(data, &cycles, sizeof(cycles));
+                __writeBytes(data, &skewRatio, sizeof(skewRatio));
+                __writeBytes(data, &waveform, sizeof(waveform));
+                
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(transient) 
+                    + colour.GetSize() 
+                    + sizeof(period) 
+                    + sizeof(cycles) 
+                    + sizeof(skewRatio) 
+                    + sizeof(waveform);
+            } 
+            static constexpr uint16_t packetId = 102;
         };
 
         struct SetLightPower{
@@ -100,6 +143,7 @@ namespace LIFX{
             inline constexpr uint16_t GetSize() const{
                 return sizeof(level) + sizeof(duration);
             }
+            static constexpr uint16_t packetId = 117;
         };
         
         struct SetWaveformOptional{
@@ -123,6 +167,7 @@ namespace LIFX{
             inline constexpr uint16_t GetSize() const{
                 return sizeof(brightness);
             }
+            static constexpr uint16_t packetId = 122;
         };
 
         struct SetHevCycle{
@@ -135,6 +180,7 @@ namespace LIFX{
             inline constexpr uint16_t GetSize() const{
                 return sizeof(enable) + sizeof(durationS);
             }
+            static constexpr uint16_t packetId = 143;
         };
 
         struct SetHevCycleConfiguration{
@@ -147,6 +193,7 @@ namespace LIFX{
             inline constexpr uint16_t GetSize() const{
                 return sizeof(indication) + sizeof(durationS);
             }
+            static constexpr uint16_t packetId = 146;
         };
         //End Light
 
@@ -158,6 +205,22 @@ namespace LIFX{
             Colour colour;
             uint32_t duration;//time in milliseconds to transition to new values
             uint8_t apply;//0=NO_APPLY, 1=APPLY, 2=APPLY_ONLY 
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &startIndex, sizeof(startIndex));
+                __writeBytes(data, &endIndex, sizeof(endIndex));
+                colour.SerialiseTo(data);
+                data+=colour.GetSize();
+                __writeBytes(data, &duration, sizeof(duration));
+                __writeBytes(data, &apply, sizeof(apply));
+            }
+            inline constexpr uint16_t GetSize() const{
+                return sizeof(startIndex) 
+                    + sizeof(endIndex) 
+                    + colour.GetSize() 
+                    + sizeof(duration) 
+                    + sizeof(apply);
+            }
+            static constexpr uint16_t packetId = 501;
         };
 
         struct SetMultiZoneEffect{
@@ -182,6 +245,7 @@ namespace LIFX{
                     + sizeof(duration)
                     + sizeof(parameters);
             }
+            static constexpr uint16_t packetId = 508;
         };
 
         struct SetExtendedColorZones{
@@ -190,6 +254,28 @@ namespace LIFX{
             uint16_t zone_index;//the first zone to apply colours from. Use this as a starting index if you plan on changing more than 82 zones buy sending multiple messages. Eg, one at 0, and one at 82
             uint8_t coloursCount;
             Colour colours[82];//The colours to change the strip with
+            
+            void SerialiseTo(uint8_t* data) const{
+                __writeBytes(data, &duration, sizeof(duration));
+                __writeBytes(data, &apply, sizeof(apply));
+                __writeBytes(data, &zone_index, sizeof(zone_index));
+                __writeBytes(data, &coloursCount, sizeof(coloursCount));
+                for(int i = 0; i < coloursCount;i++){
+                    colours[i].SerialiseTo(data);
+                    data+=colours[i].GetSize();
+                }
+
+
+            }
+            inline constexpr uint16_t GetSize() const {
+                return sizeof(duration)
+                    + sizeof(apply)
+                    + sizeof(zone_index)
+                    + sizeof(coloursCount)
+                    + colours[0].GetSize() * coloursCount;
+            }
+
+            static constexpr uint16_t packetId = 510;
         };
         //End Multizone
 
@@ -205,6 +291,7 @@ namespace LIFX{
             inline constexpr uint16_t GetSize() const{
                 return sizeof(relayIndex) + sizeof(level);
             }
+            static constexpr uint16_t packetId = 817;
         };
         //End Relay
 
@@ -218,6 +305,7 @@ namespace LIFX{
             uint8_t service;//1=UDP, 2-5=Reserved1-4
             uint32_t port;//Port of service, usually 56700, but not always
             in_addr deviceIP;//the devices IP
+            static constexpr uint16_t packetId = 3;
         };
 
         /*
@@ -229,6 +317,7 @@ namespace LIFX{
             uint64_t build;//timestamp of the firmware on the device as an epoch
             uint16_t versionMinor;
             uint16_t versionMajor;
+            static constexpr uint16_t packetId = 15;
         };
 
 
@@ -239,6 +328,7 @@ namespace LIFX{
         */
         struct StateWifiInfo{
             float signal;//the signal strength of the device
+            static constexpr uint16_t packetId = 17;
         };
 
          /*
@@ -250,15 +340,18 @@ namespace LIFX{
             uint64_t build;//timestamp of the wifi firmware on the device as an epoch. Only relevant for the first two generations of LIFX products
             uint16_t versionMinor;
             uint16_t versionMajor;
+            static constexpr uint16_t packetId = 19;
         };
 
-        struct StatePower{
-            uint16_t level;//The level of a device (0=Off, 65535=On)
-        };
+        // struct StatePower{
+        //     uint16_t level;//The level of a device (0=Off, 65535=On)
+        //     static constexpr uint16_t packetId = 22;
+        // };
 
-        struct StateLabel{
-            char label[32];//The devices label
-        };
+        // struct StateLabel{
+        //     char label[32];//The devices label
+        //     static constexpr uint16_t packetId = 25;
+        // };
     }
     
 }

@@ -416,18 +416,20 @@ void setup(){
 	delay(100);
 }
 
-int delayTime = 1000;
-int64_t lastTime = -delayTime;
+int delayTime = 5000;
+int64_t lastTime = 0;
 bool on = false;
 
 void loop(){
 	if(millis() - lastTime > delayTime){
-		// Serial.println("Sending: " + String(
-		// 	(int)lifx.SetLightPower((struct LIFX::Payloads::SetLightPower){on ? 0 : 0xffff, 0},d1, true)
-		// ));
-		lifx.SetLightPower((struct LIFX::Payloads::SetLightPower){on ? 0 : 0xffff, 0},d1, true);
+		uint16_t val = on ? 0 : 0x7777;
+
+		Serial.println("Sending: " + String(
+			(int)lifx.SetLightPower((struct LIFX::Payloads::SetLightPower){val, 1000},d1, true)
+		));
+		lifx.SetLightPower((struct LIFX::Payloads::SetLightPower){val, 1000},d2, true);
 		// delay(1000);
-		lifx.SetPower((struct LIFX::Payloads::SetPower){on ? 0xffff:0}, d2, true);
+		// lifx.SetPower((struct LIFX::Payloads::SetPower){val}, d2, true);
 		on = !on;
 		lastTime = millis();
 	}

@@ -39,7 +39,7 @@ void setup(){
 	delay(100);
 }
 
-int delayTime = 5000;
+int delayTime = 2000;
 int64_t lastTime = 0;
 bool on = false;
 
@@ -48,9 +48,9 @@ void loop(){
 		uint16_t val = on ? 0 : 0x7777;
 
 		Serial.println("Sending: " + String(
-			(int)lifx.SetLightPower((struct LIFX::Payloads::SetLightPower){val, 1000},d1, true)
+			(int)lifx.SetLightPower({val,0},d1, true)
 		));
-		lifx.SetLightPower((struct LIFX::Payloads::SetLightPower){val, 1000},d2, true);
+		lifx.SetLightPower({val,0},d2, true);
 		// delay(1000);
 		// lifx.SetPower((struct LIFX::Payloads::SetPower){val}, d2, true);
 		on = !on;

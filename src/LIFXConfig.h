@@ -9,10 +9,9 @@
 
 //header constants
 #define ORIGIN 0
-#define ADDRESSABLE true
-#define TAGGED false
+#define ADDRESSABLE 1
+#define TAGGED 0
 #define PROTOCOL 1024
 
 //Other constants
 #define DISCOVER_SOURCE_ID 6767
-#define SET_SOURCE_ID 41

@@ -3,187 +3,135 @@
 #include <lwip/netdb.h>
 #include <lwip/inet.h>
 
-typedef uint16_t LIFXFrameHeaderPart;
-typedef uint64_t LIFXFrameAddressPart;
 
+#define HEADER_SIZE 36
+//Could use bit fields, but this is compiler agnostic
+struct LIFXHeader{
+	//Frame header
+	uint16_t size;
+	uint16_t protocol;//protocol + addressable + tagged + origin
+	uint32_t source;
 
-#pragma pack(push, 1)
-struct LIFXFrameHeader{
-	LIFXFrameHeader() = default;
-	LIFXFrameHeader(uint16_t _size, uint16_t _protocol, bool _addressable, bool _tagged, bool _origin, uint32_t _source){
-		size = _size;
-		packedPart = _protocol & 0x0FFF;
-		packedPart |= (_addressable ? 1 : 0) << 12;
-		packedPart |= (_tagged ? 1 : 0) << 13;
-		packedPart |= (_origin ? 1 : 0) << 14;
-		source = _source;
+	//Frame Address
+	uint8_t target[8];
+	uint8_t resAckReserved;//res + ack + reserved (6bit)
+	uint8_t sequence;
+
+	//Protocol Header
+    uint16_t type;
+
+	
+
+	LIFXHeader() = default;
+	LIFXHeader(uint16_t _packetType, uint32_t _payloadSize, bool _requireAck, uint32_t _sourceId, uint8_t _sequence, uint64_t _target, bool _tagged){
+		//Frame header
+		size = HEADER_SIZE + _payloadSize;
+		protocol = 0;
+		protocol |= PROTOCOL & 0x0FFF;
+		protocol |= (ADDRESSABLE << 12);
+		protocol |= (_tagged ? 1 : 0) << 13;
+		protocol |= (ORIGIN & 0x03) << 14;
+		source = _sourceId;
+
+		//Frame address
+		for(int i = 0; i < 8; i++) target[i] = (_target >> (8 * i)) & 0xFF;
+		resAckReserved = 0;
+		resAckReserved |= (_requireAck ? 1 : 0) << 1;
+		sequence = _sequence;
+
+		//Protocol Header
+		type = _packetType;
+	}
+	
+	//free after use
+	uint8_t* Serialise(uint8_t* buf){
+		memset(buf,0,HEADER_SIZE);
+		//frame header
+		buf[0] = size & 0xff;
+		buf[1] = (size>>8) & 0xff;
+		buf[2] = protocol & 0xff;
+		buf[3] = (protocol >> 8) & 0xff;//rest of protocol + addressable + tagged + origin
+		for(int i = 0; i < 4; i++) buf[4+i] = (source >> i*8) & 0xff;
+
+		//frame address
+		for(int i = 0; i < 8; i++) buf[8+i] = target[i];
+		//next 6 reserved
+		buf[22] = resAckReserved;
+		buf[23] = sequence;
+		//next 8 reserved
+		buf[32] = type & 0xff;
+		buf[33] = (type>>8) & 0xff;
+		return buf;
 	}
 
-
-	uint16_t size;//msg size (including this field)
-	LIFXFrameHeaderPart packedPart;//protocol, addressable, tagged, and origin
-	uint32_t source;//source id, unique, set by client
-
-
-	static uint16_t GetProtocol(LIFXFrameHeaderPart _packedPart){
-		return _packedPart & 0x0FFF;
+	void Deserialise(const uint8_t* buf){
+		size = buf[0] | (buf[1] << 8);
+		protocol = buf[2] | (buf[3] << 8);
+		source = buf[4] | (buf[5] << 8) | (buf[6] << 16) | (buf[7] << 24);
+		for (int i = 0; i < 8; i++) target[i] = buf[8+i];
+		resAckReserved = buf[22];
+		sequence = buf[23];
+		type = buf[32] | (buf[33] << 8);
 	}
 
-	static bool GetAddressable(LIFXFrameHeaderPart _packedPart){
-		return(_packedPart >> 12) & 1;
-	}
+	static LIFXHeader ParseHeader(const uint8_t* buf) {
+		LIFXHeader header;
+		header.Deserialise(buf);
+		return header;
+	} 
 
-	static uint8_t GetTagged(LIFXFrameHeaderPart _packedPart){
-		return(_packedPart >> 13) & 1;
-	}
-
-	static uint8_t GetOrigin(LIFXFrameHeaderPart _packedPart){
-		return(_packedPart >> 14) & 1;
-	}
-
-};
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-struct LIFXFrameAddress{
-	LIFXFrameAddress() = default;
-
-	LIFXFrameAddress(uint64_t _target, bool _resRequired, bool _ackRequired, uint8_t _sequence){
-		target = _target;
-		packedPart = 0x00;
-		//first 6 bytes (48 bits) are 0
-		packedPart |= (uint64_t)(_resRequired ? 1 : 0) << 48;
-		packedPart |= (uint64_t)(_ackRequired ? 1 : 0) << 49;
-		packedPart |= (uint64_t)(_sequence) << 56;
-	}
-
-	uint64_t target;
-	LIFXFrameAddressPart packedPart;
-
-	//targets must be 8 size
-	static void GetTargets(uint64_t _target, uint8_t* targets){
-		for(int i = 0; i < 7; i++){
-			//2^n - 1 bits
-			//2^(8*i) - 1
-			targets[i] = _target >> (i*8) &0xFF;
-		}
-	}
-
-	static bool GetResRequired(LIFXFrameAddressPart _packedPart){
-		uint8_t byte7 = _packedPart >> (6*8) &0xFF;
-		//in the 0th bit
-		return byte7 & 0x01;
-	}
-
-	static bool GetAckRequired(LIFXFrameAddressPart _packedPart){
-		uint8_t byte7 = _packedPart >> (6*8) &0xFF;
-		//in bit 1
-		return byte7 & 0x02;
-	}
-
-	uint8_t GetSequence() const {return GetSequence(packedPart);}
-	static uint8_t GetSequence(LIFXFrameAddressPart _packedPart){
-		return  _packedPart >> (7*8) &0xFF;
-	}
-
-};
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-struct LIFXProtocolHeader{
-	LIFXProtocolHeader() = default;
-	LIFXProtocolHeader(uint16_t _type){
-		type = _type;
-	}
-	uint64_t _reserved1;
-	uint16_t type;
-	uint16_t _reserved2;
-};
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-struct LIFXFullHeader {
-	LIFXFullHeader() = default;
-	LIFXFrameHeader frameHeader;
-	LIFXFrameAddress frameAddress;
-	LIFXProtocolHeader protocolHeader;
-
-	//thanks chat
-	void Print() const {
-		// ---- Frame Header ----
-		printf("=== Frame Header ===\n");
-		printf("Size: %u\n", frameHeader.size);
-		printf("Protocol: %u\n",
-			LIFXFrameHeader::GetProtocol(frameHeader.packedPart));
-		printf("Addressable: %u\n",
-			LIFXFrameHeader::GetAddressable(frameHeader.packedPart));
-		printf("Tagged: %u\n",
-			LIFXFrameHeader::GetTagged(frameHeader.packedPart));
-		printf("Origin: %u\n",
-			LIFXFrameHeader::GetOrigin(frameHeader.packedPart));
-		printf("Source: %lu\n\n", frameHeader.source);
-
-		// ---- Frame Address ----
-		printf("=== Frame Address ===\n");
-		printf("Target: %llu\n", frameAddress.target);
-		printf("Res Required: %u\n",
-			LIFXFrameAddress::GetResRequired(frameAddress.packedPart));
-		printf("Ack Required: %u\n",
-			LIFXFrameAddress::GetAckRequired(frameAddress.packedPart));
-		printf("Sequence: %u\n",
-			LIFXFrameAddress::GetSequence(frameAddress.packedPart));
-
-		// Use provided GetTargets
-		uint8_t targetBytes[8] = {0};
-		LIFXFrameAddress::GetTargets(frameAddress.target, targetBytes);
-
-		printf("Target Bytes: ");
-		for (int i = 0; i < 7; i++) {
-			printf("%u ", targetBytes[i]);
-		}
-		printf("\n\n");
-
-		// ---- Protocol Header ----
-		printf("=== Protocol Header ===\n");
-		printf("Reserved1: %llu\n", protocolHeader._reserved1);
-		printf("Type: %u\n", protocolHeader.type);
-		printf("Reserved2: %u\n", protocolHeader._reserved2);
-
-		printf("========================\n");
+	inline uint64_t GetTarget() const{
+		uint64_t t = 0;
+		for(int i = 0; i < 8; i++) t |= (uint64_t)target[i] << i*8;
+		return t;
 	}
 
 };
+
+
+#pragma pack(push, 1)
+typedef struct {
+  /* frame */
+  uint16_t size;
+  uint16_t protocol:12;
+  uint8_t  addressable:1;
+  uint8_t  tagged:1;
+  uint8_t  origin:2;
+  uint32_t source;
+  /* frame address */
+  uint8_t  target[8];
+  uint8_t  reserved[6];
+  uint8_t  res_required:1;
+  uint8_t  ack_required:1;
+  uint8_t  :6;
+  uint8_t  sequence;
+  /* protocol header */
+  uint64_t :64;
+  uint16_t type;
+  uint16_t :16;
+  /* variable length payload follows */
+} lx_protocol_header_t;
 #pragma pack(pop)
-
-#define HEADER_SIZE sizeof(LIFXFullHeader)
-
 
 namespace LIFX{
 
-	
-    const uint16_t LIFX_UDP::GetHeaderSize() {
-        return sizeof(LIFXFullHeader);
-    }
 
-	LIFX_UDP::DeviceHeader GetHeaderView(const LIFXFullHeader& header){
+	LIFX_UDP::DeviceHeader GetHeaderView(const LIFXHeader& header){
 		return {
-			header.frameHeader.size,
-			header.frameHeader.source,
-			header.frameAddress.target,
-			header.frameAddress.GetSequence(),
-			header.protocolHeader.type
+			header.size,
+			header.source,
+			header.GetTarget(),
+			header.sequence,
+			header.type
 		};
 	}
 
 
 	uint32_t LIFX::LIFX_UDP::m_sourceId = 0;
+    const uint16_t LIFX_UDP::GetHeaderSize() {
+        return HEADER_SIZE;
+    }
 
-	inline LIFXFullHeader ParseHeader(uint8_t* data){
-		LIFXFullHeader header;
-		memcpy(&header, data, HEADER_SIZE);
-		return header;
-		
-	}
 
     LIFX_UDP::UDP_SETUP_RESP LIFX_UDP::Begin() {
 		m_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -215,17 +163,14 @@ namespace LIFX{
 		return UDP_SETUP_RESP::SUCCESS;
     }
 
-	uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target, bool tagged) {
-		LIFXFullHeader getService{
-			LIFXFrameHeader(HEADER_SIZE + payloadSize, PROTOCOL, ADDRESSABLE, tagged, ORIGIN, sourceId),
-			LIFXFrameAddress(target, false, requireAck, sequence),
-			LIFXProtocolHeader(packetType)
-		};		
-        uint8_t *data = new uint8_t[HEADER_SIZE + payloadSize];
-		memcpy(data, &getService, HEADER_SIZE);
-        return data;
-    }
 
+
+	uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target, bool tagged) {
+		LIFXHeader header(packetType, payloadSize, requireAck, sourceId, sequence, target,tagged);
+		uint8_t* buf = new uint8_t[HEADER_SIZE + payloadSize];
+		if(!buf) return nullptr;
+        return header.Serialise(buf);
+    }
 
     bool LIFX_UDP::SendPacket(const uint8_t *data, size_t len, sockaddr_in &dest)
     {
@@ -305,9 +250,10 @@ namespace LIFX{
 				sockaddr_in sourceAddr;
 				socklen_t addrLen = sizeof(sourceAddr);
 				int res = recvfrom(lu.m_sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&sourceAddr, &addrLen);
-				auto temp = ParseHeader(buffer);
+				// auto temp = ParseHeader(buffer);
+				LIFXHeader fullHeader = LIFXHeader::ParseHeader(buffer);
 				
-				DeviceHeader header = GetHeaderView(temp);
+				DeviceHeader header = GetHeaderView(fullHeader);
 				
 
 				printf("Recv header seq %d, header srcId %d, target: %" PRIu64 "\n", header.sequence,header.source,header.target);

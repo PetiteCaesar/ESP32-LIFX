@@ -133,6 +133,7 @@ namespace LIFX{
         template<typename T>
         UDP_RESP SendSetPacket(const T payload, const Device* dev, bool requireAck){
             uint8_t* data = GetSendHeader(payload.packetId,payload.GetSize(),requireAck,m_sourceId,++m_sequence,0, dev==nullptr);
+            if(!data) return UDP_RESP::SENT_FAILED;
             // target = 0 (broadcast only when dev==nullptr (tagged = 1))
             payload.SerialiseTo(data + GetHeaderSize());
             bool res = SendMessage(data, GetHeaderSize() + payload.GetSize(), dev);

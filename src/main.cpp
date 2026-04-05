@@ -39,7 +39,7 @@ void setup(){
 	delay(100);
 }
 
-int delayTime = 2000;
+int delayTime = 500;
 int64_t lastTime = 0;
 bool on = false;
 
@@ -51,8 +51,7 @@ void loop(){
 			(int)lifx.SetLightPower({val,0},d1, true)
 		));
 		lifx.SetLightPower({val,0},d2, true);
-		// delay(1000);
-		// lifx.SetPower((struct LIFX::Payloads::SetPower){val}, d2, true);
+		// lifx.SetPower((struct LIFX::Payloads::SetPower){val}, true);
 		on = !on;
 		lastTime = millis();
 	}

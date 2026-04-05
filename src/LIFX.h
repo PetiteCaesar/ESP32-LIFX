@@ -43,10 +43,16 @@ namespace LIFX{
             SUCCESS,
             SENT_SUCCESS,
             SENT_FAILED,
-            RECEIVE_TIMED_OUT,
-            ACK_TIMED_OUT,
-            ACK_WRONG_MSG
         };
+
+        const char* UDPRespToString(UDP_RESP resp){
+            switch(resp){
+                case UDP_RESP::SUCCESS: return "SUCCESS";
+                case UDP_RESP::SENT_SUCCESS: return "SENT_SUCCESS";
+                case UDP_RESP::SENT_FAILED: return "SENT_FAILED";
+                default: return "UNKNOWN";
+            }
+        }
 
         enum class UDP_SETUP_RESP{
             SOCKET_CREATION_FAIL,

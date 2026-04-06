@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Lachlan Trevascus
+// MIT License.
 #pragma once
 #include <cstdint>
 #include "Payloads.h"

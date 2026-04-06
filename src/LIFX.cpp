@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Lachlan Trevascus
+// MIT License.
 #include "LIFX.h"
 #include <string.h>
 #include <lwip/netdb.h>
@@ -19,8 +21,6 @@ struct LIFXHeader{
 
 	//Protocol Header
     uint16_t type;
-
-	
 
 	LIFXHeader() = default;
 	LIFXHeader(uint16_t _packetType, uint32_t _payloadSize, bool _requireAck, uint32_t _sourceId, uint8_t _sequence, uint64_t _target, bool _tagged){
@@ -140,21 +140,21 @@ namespace LIFX{
 
 
 
-	uint8_t *LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target, bool tagged) {
+	uint8_t* LIFX_UDP::GetSendHeader(uint16_t packetType, uint32_t payloadSize, bool requireAck, uint32_t sourceId, uint8_t sequence, uint64_t target, bool tagged) {
 		LIFXHeader header(packetType, payloadSize, requireAck, sourceId, sequence, target,tagged);
 		uint8_t* buf = new uint8_t[HEADER_SIZE + payloadSize];
 		if(!buf) return nullptr;
         return header.Serialise(buf);
     }
 
-    bool LIFX_UDP::SendPacket(const uint8_t *data, size_t len, sockaddr_in &dest)
+    bool LIFX_UDP::SendPacket(const uint8_t* data, size_t len, sockaddr_in &dest)
     {
         int err = sendto(m_sock, data, len, 0, (sockaddr*)&dest, sizeof(dest));
 		// printf("Sendto err: %d\n", err);
 		return err >= 0;
     }
 
-    bool LIFX_UDP::SendMessage(const uint8_t *data, size_t len, const Device *dev) {
+    bool LIFX_UDP::SendMessage(const uint8_t* data, size_t len, const Device* dev) {
 		sockaddr_in dest;
 		dest.sin_family = AF_INET;
 		if(dev == nullptr || !Device::IsValid(*dev)){
@@ -203,7 +203,7 @@ namespace LIFX{
         return m_deviceManager.devices[id];
     }
 
-    void LIFX_UDP::UDPPollTask(void *data) {
+    void LIFX_UDP::UDPPollTask(void* data) {
 		LIFX_UDP& lu = *(LIFX_UDP*)data;
 		DeviceManager& dm = lu.m_deviceManager;
 		fd_set fds;

@@ -91,18 +91,18 @@ struct LIFXHeader{
 namespace LIFX{
 
 
-	LIFX_UDP::DeviceHeader GetHeaderView(const LIFXHeader& header){
+	LIFX_UDP::DeviceHeader GetHeaderView(const LIFXHeader& header, const sockaddr_in& sockAddr){
 		return {
 			header.size,
 			header.source,
 			header.GetTarget(),
 			header.sequence,
-			header.type
+			header.type,
+			sockAddr
 		};
 	}
 
 
-	uint32_t LIFX::LIFX_UDP::m_sourceId = 0;
     const uint16_t LIFX_UDP::GetHeaderSize() {
         return HEADER_SIZE;
     }
@@ -157,7 +157,7 @@ namespace LIFX{
     bool LIFX_UDP::SendMessage(const uint8_t* data, size_t len, const Device* dev) {
 		sockaddr_in dest;
 		dest.sin_family = AF_INET;
-		if(dev == nullptr || !Device::IsValid(*dev)){
+		if(dev == nullptr || !Device::IsValid(*dev) || !dev->useIp){
 			dest.sin_port = htons(UDP_PORT);
 			dest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 		}  else{
@@ -196,9 +196,9 @@ namespace LIFX{
         return m_deviceManager.discoveredDevices;
     }
 
-    Device LIFX_UDP::GetDevice(uint32_t id) {
+    LIFX_UDP::Device LIFX_UDP::GetDevice(uint32_t id) {
 		if(id >= GetDiscoveredDevices()){
-			return Device {0, 0, 0, 0};
+			return Device();
 		}
         return m_deviceManager.devices[id];
     }
@@ -212,8 +212,7 @@ namespace LIFX{
 		timeval timeout = {0,0};
 		for(;;){
 			fd_set readfds = fds;
-
-			select(lu.m_sock + 1, &readfds, NULL, NULL, &timeout);
+			select(lu.m_sock + 1, &readfds, nullptr, nullptr, &timeout);
 
 			if(dm.discovering && ((esp_timer_get_time() - dm.lastAddTime) > SOCKET_TIMEOUT_MS*1000 || dm.discoveredDevices == MAX_DEVICES)) {
 				printf("Discovering stopped due to timeout or maxDevs reached\n");
@@ -225,42 +224,31 @@ namespace LIFX{
 				sockaddr_in sourceAddr;
 				socklen_t addrLen = sizeof(sourceAddr);
 				int res = recvfrom(lu.m_sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&sourceAddr, &addrLen);
-				// auto temp = ParseHeader(buffer);
-				LIFXHeader fullHeader = LIFXHeader::ParseHeader(buffer);
-				
-				DeviceHeader header = GetHeaderView(fullHeader);
-				
+				DeviceHeader header = GetHeaderView(LIFXHeader::ParseHeader(buffer), sourceAddr);
 
 				printf("Recv header seq %d, header srcId %d, target: %" PRIu64 "\n", header.sequence,header.source,header.target);
 
 				if(dm.discovering && header.source == DISCOVER_SOURCE_ID){
-			
-					Device newDevice;
-					newDevice.service = buffer[HEADER_SIZE];
-					//seems to send the same device multiple times 
-					//with different services
-					//not sure what its for
-					if(newDevice.service == 1){
-						newDevice.id = header.target;
-						memcpy(&newDevice.port, buffer + HEADER_SIZE + 1, sizeof(uint32_t));
-						newDevice.ipAddr = ntohl(sourceAddr.sin_addr.s_addr);
-						printf("id: %" PRIu64 ", service %" PRIu8 ", ipAddr: %" PRIu32 " port: %d\n",newDevice.id, newDevice.service, newDevice.ipAddr, newDevice.port);
-						printf("Adding device at %d\n", dm.discoveredDevices);
-						dm.devices[dm.discoveredDevices] = newDevice;
-						dm.discoveredDevices++;
-						dm.lastAddTime = esp_timer_get_time();
-					}
-					
-
-				} else{
-					// temp.Print();
+					OnDiscoverRecv(dm,header, buffer);
 				} 
-
 			}
 			vTaskDelay(3);
 		}
     }
 
-
+    void LIFX_UDP::OnDiscoverRecv(DeviceManager& dm, DeviceHeader &header, uint8_t* buffer) {
+		Device newDevice;
+		newDevice.service = buffer[HEADER_SIZE];
+		if(newDevice.service == 1){
+			newDevice.target = header.target;
+			memcpy(&newDevice.port, buffer + HEADER_SIZE + 1, sizeof(uint32_t));
+			newDevice.ipAddr = ntohl(header.sourceAddr.sin_addr.s_addr);
+			printf("target: %" PRIu64 ", service %" PRIu8 ", ipAddr: %" PRIu32 " port: %d\n",newDevice.target, newDevice.service, newDevice.ipAddr, newDevice.port);
+			printf("Adding device at %d\n", dm.discoveredDevices);
+			dm.devices[dm.discoveredDevices] = newDevice;
+			dm.discoveredDevices++;
+			dm.lastAddTime = esp_timer_get_time();
+		}
+    }
 }
 

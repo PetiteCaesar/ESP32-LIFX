@@ -27,7 +27,7 @@ void setup(){
 	}
 
 	lifx.Begin();
-	delay(5000);
+	delay(2000);
 	Serial.println("Discovering");
 	lifx.DiscoverDevicesBlocking();
 	Serial.println("Finished discovering");

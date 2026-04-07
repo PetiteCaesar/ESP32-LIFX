@@ -37,7 +37,6 @@ namespace LIFX{
     namespace Payloads{
 
         //Device
-
         struct SetPower{
             uint16_t level;//0 = off, 65535 = on
             void SerialiseTo(uint8_t* data) const{

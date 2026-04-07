@@ -58,9 +58,8 @@ namespace LIFX{
         };
 
         enum class UDP_RESP{
+            FAILED,
             SUCCESS,
-            SENT_SUCCESS,
-            SENT_FAILED,
         };
         enum class UDP_SETUP_RESP{
             SOCKET_CREATION_FAIL,
@@ -78,9 +77,7 @@ namespace LIFX{
 
         const char* UDPRespToString(UDP_RESP resp){
             switch(resp){
-                case UDP_RESP::SUCCESS: return "SUCCESS";
-                case UDP_RESP::SENT_SUCCESS: return "SENT_SUCCESS";
-                case UDP_RESP::SENT_FAILED: return "SENT_FAILED";
+                case UDP_RESP::FAILED: return "SENT_FAILED";
                 default: return "UNKNOWN";
             }
         }
@@ -125,6 +122,14 @@ namespace LIFX{
         }
 
 
+        void GetResp(uint16_t type, OnResponseFunction func, Device& dev){
+            int resp = m_responseManager.QueueResponse(func);
+            if(resp > 0){
+                SendGetPacket(type,&dev,resp);
+            }
+            printf("resp after queue %d\n", resp);   
+        }
+
     private:
         
         static const uint16_t GetHeaderSize();
@@ -136,20 +141,6 @@ namespace LIFX{
             bool discovering;
         } m_deviceManager;
 
-
-        /*
-        When a Get request is made, it is given the specific sourceid
-        and sequence number corresponding to the function in the 
-        get response
-
-        - list of functions
-        - need to know which slots are taken
-        - which slots are free
-        - quickly get a free slot
-
-        - keep list of taken and free (can use unordered set)
-        - when add, remove from free add to taken
-        */
 
         struct GetResponse{
             OnResponseFunction func;
@@ -169,6 +160,7 @@ namespace LIFX{
                     int index = head.load(std::memory_order_relaxed);
                     avail[index] = seq;
                     head.store(index+1,std::memory_order_release);
+                    printf("ran resp, ind %d\n", index+1);
                 } 
             }
             //seq to send otherwise -1 if cant queue
@@ -226,16 +218,26 @@ namespace LIFX{
         UDP_RESP SendSetPacket(const T payload, const Device* dev, bool requireAck){
             uint8_t* data = GetSendHeader(payload.packetId,payload.GetSize(),requireAck,m_sourceId,++m_sequence,dev->GetTarget(dev), dev==nullptr);
 
-            if(!data) return UDP_RESP::SENT_FAILED;
+            if(!data) return UDP_RESP::FAILED;
             payload.SerialiseTo(data + GetHeaderSize());
             bool res = SendMessage(data, GetHeaderSize() + payload.GetSize(), dev);
             delete[] data;
-            if(!res) return UDP_RESP::SENT_FAILED;
-            return UDP_RESP::SENT_SUCCESS;
+            if(!res) return UDP_RESP::FAILED;
+            return UDP_RESP::SUCCESS;
+        }
+
+        UDP_RESP SendGetPacket(uint16_t type, const Device* dev, uint8_t seq){
+            uint8_t* data = GetSendHeader(type,0,false,GET_RESPONSE_SOURCE_ID,seq,dev->GetTarget(dev), dev==nullptr);
+
+            if(!data) return UDP_RESP::FAILED;
+            bool res = SendMessage(data, GetHeaderSize(), dev);
+            delete[] data;
+            if(!res) return UDP_RESP::FAILED;
+            return UDP_RESP::SUCCESS;
         }
 
         uint8_t m_sequence = 0;
-
+        static uint32_t m_sourceId;
     };
 
     class LIFX_HTTP{

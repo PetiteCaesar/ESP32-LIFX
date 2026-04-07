@@ -3,10 +3,12 @@
 #include ".config.h"
 #include "LIFX.h"
 
-LIFX::LIFX_UDP lifx;
+using namespace LIFX;
 
-LIFX::Device d1;
-LIFX::Device d2;
+LIFX_UDP lifx;
+
+LIFX_UDP::Device d1;
+LIFX_UDP::Device d2;
 
 
 void setup(){
@@ -34,22 +36,37 @@ void setup(){
 
 	d1 = lifx.GetDevice(0);
 	d2 = lifx.GetDevice(1);
-	Serial.printf("D1 valid %d\n", LIFX::Device::IsValid(d1));
-	Serial.printf("D2 valid %d\n", LIFX::Device::IsValid(d2));
+	Serial.printf("D1 valid %d\n", LIFX_UDP::Device::IsValid(d1));
+	Serial.printf("D2 valid %d\n", LIFX_UDP::Device::IsValid(d2));
 	delay(100);
+	Serial.println("Sending get");
+	//GetLightPower 
+	lifx.GetResp(116,[](LIFX_UDP::DeviceHeader& header, uint8_t* payload, uint16_t type){
+		uint16_t level = payload[0] | (payload[1] << 8);
+		Serial.printf("\nGot resp for 116 (type): %" PRIu16 " should (h) be: %" PRIu16 " with level %" PRIu16  "\n",type, header.type, level);
+	},d1);
+
+	delay(1000);
+
 }
 
-int delayTime = 500;
+int delayTime = 2000;
 int64_t lastTime = 0;
 bool on = false;
 
 void loop(){
 	if(millis() - lastTime > delayTime){
-		uint16_t val = on ? 0 : 0x7777;
+		uint16_t val = on ? 0 : 0xffff;
 
 		Serial.println("Sending: " + String(
 			(int)lifx.SetLightPower({val,0},d1, true)
 		));
+		delay(500);
+		lifx.GetResp(116,[](LIFX_UDP::DeviceHeader& header, uint8_t* payload, uint16_t type){
+			uint16_t level = payload[0] | (payload[1] << 8);
+			Serial.printf("\nGot resp for 116 (type): %" PRIu16 " should (h) be: %" PRIu16 " with level %" PRIu16  "\n",type, header.type, level);
+		},d1);
+
 		lifx.SetLightPower({val,0},d2, true);
 		// lifx.SetPower((struct LIFX::Payloads::SetPower){val}, true);
 		on = !on;

@@ -90,7 +90,6 @@ struct LIFXHeader{
 
 namespace LIFX{
 
-
 	LIFX_UDP::DeviceHeader GetHeaderView(const LIFXHeader& header, const sockaddr_in& sockAddr){
 		return {
 			header.size,
@@ -102,7 +101,7 @@ namespace LIFX{
 		};
 	}
 
-
+	uint32_t LIFX::LIFX_UDP::m_sourceId = 0;
     const uint16_t LIFX_UDP::GetHeaderSize() {
         return HEADER_SIZE;
     }
@@ -206,6 +205,7 @@ namespace LIFX{
     void LIFX_UDP::UDPPollTask(void* data) {
 		LIFX_UDP& lu = *(LIFX_UDP*)data;
 		DeviceManager& dm = lu.m_deviceManager;
+		GetResponseManager& rm = lu.m_responseManager;
 		fd_set fds;
 		FD_ZERO(&fds);
 		FD_SET(lu.m_sock, &fds);
@@ -226,11 +226,13 @@ namespace LIFX{
 				int res = recvfrom(lu.m_sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&sourceAddr, &addrLen);
 				DeviceHeader header = GetHeaderView(LIFXHeader::ParseHeader(buffer), sourceAddr);
 
-				printf("Recv header seq %d, header srcId %d, target: %" PRIu64 "\n", header.sequence,header.source,header.target);
+				// printf("Recv header seq %d, header srcId %d, target: %" PRIu64 "\n", header.sequence,header.source,header.target);
 
 				if(dm.discovering && header.source == DISCOVER_SOURCE_ID){
 					OnDiscoverRecv(dm,header, buffer);
-				} 
+				} else if(header.source == GET_RESPONSE_SOURCE_ID){
+					rm.RunResponse(header.sequence,header,buffer + HEADER_SIZE,header.type);
+				}
 			}
 			vTaskDelay(3);
 		}

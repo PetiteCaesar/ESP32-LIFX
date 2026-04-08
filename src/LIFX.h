@@ -70,9 +70,9 @@ namespace LIFX{
         
         #ifndef USE_RAW_FUNCTIONS
         //header, payload, payloadType
-        typedef std::function<void(DeviceHeader&,uint8_t*, uint16_t)> OnResponseFunction;  
+        typedef std::function<void(DeviceHeader&,const uint8_t*)> OnResponseFunction;  
         #else
-        typedef void(*OnResponseFunction)(void*,DeviceHeader&, uint8_t*, uint16_t) ;
+        typedef void(*OnResponseFunction)(void*,DeviceHeader&, const uint8_t*) ;
         #endif  
 
         const char* UDPRespToString(UDP_RESP resp){
@@ -106,28 +106,25 @@ namespace LIFX{
         UDP_RESP SetPower(Payloads::SetPower payload, const Device& device, bool requireAck = true){ 
             return SendSetPacket(payload,&device,requireAck); 
         }
-        //will broadcast to all devices discovered by DiscoverDevices
         UDP_RESP SetPower(Payloads::SetPower payload, bool requireAck = true){
             return SendSetPacket(payload, nullptr, requireAck);
         }
-
         UDP_RESP SetLightPower(Payloads::SetLightPower payload, const Device& device, bool requireAck = true){
-            
             return SendSetPacket(payload, &device, requireAck);
         }
-        
-        //will broadcast to all devices discovered by DiscoverDevices
         UDP_RESP SetLightPower(Payloads::SetLightPower payload, bool requireAck = true){
             return SendSetPacket(payload, nullptr, requireAck);
         }
 
 
-        void GetResp(uint16_t type, OnResponseFunction func, Device& dev){
+
+        UDP_RESP GetResponse(GetQuery query, OnResponseFunction func, Device& dev){
             int resp = m_responseManager.QueueResponse(func);
             if(resp > 0){
-                SendGetPacket(type,&dev,resp);
+                SendGetPacket((uint16_t)query,&dev,resp);
+                return UDP_RESP::SUCCESS;
             }
-            printf("resp after queue %d\n", resp);   
+            return UDP_RESP::FAILED;
         }
 
     private:
@@ -142,7 +139,7 @@ namespace LIFX{
         } m_deviceManager;
 
 
-        struct GetResponse{
+        struct Response{
             OnResponseFunction func;
             bool created = false;
             uint32_t createdAt;
@@ -153,9 +150,9 @@ namespace LIFX{
                     avail[i] = i;
                 head.store(GET_STATE_BUFFER_SIZE, std::memory_order_relaxed);
             }
-            void RunResponse(uint8_t seq, DeviceHeader& h,uint8_t* payload, uint16_t payloadType){
+            void RunResponse(uint8_t seq, DeviceHeader& h,const uint8_t* payload){
                 if(m_functions[seq].created){
-                    m_functions[seq].func(h,payload,payloadType);
+                    m_functions[seq].func(h,payload);
                     m_functions[seq].created = false;
                     int index = head.load(std::memory_order_relaxed);
                     avail[index] = seq;
@@ -171,7 +168,7 @@ namespace LIFX{
                     --index; head.store(index,std::memory_order_release);
                     uint8_t slot = avail[index];
 
-                    GetResponse& resp = m_functions[slot];
+                    Response& resp = m_functions[slot];
                     resp.func = func;
                     resp.created = true;
                     resp.createdAt = timeNowMs;
@@ -194,7 +191,7 @@ namespace LIFX{
 
 
             private:
-            GetResponse m_functions[GET_STATE_BUFFER_SIZE];
+            Response m_functions[GET_STATE_BUFFER_SIZE];
             uint8_t avail[GET_STATE_BUFFER_SIZE];
             std::atomic<int> head;
         } m_responseManager;

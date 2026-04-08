@@ -12,6 +12,14 @@ namespace LIFX{
         dst += size;
     }
 
+    template<typename T>
+    inline T convert(const uint8_t* data){
+        T res = 0;
+        for(int i = 0; i < sizeof(T); ++i) res |= ((T)data[i]) << i*8;
+        return res; 
+    }
+
+
     struct Colour{
         uint16_t hue;
         uint16_t saturation;
@@ -31,14 +39,51 @@ namespace LIFX{
         }
     };
 
-
+    enum class GetQuery : uint16_t{
+        Service = 2,
+        HostFirmware = 14,
+        WifiInfo = 16,
+        WifiFirmware = 18,
+        Power = 20,
+        Label = 23,
+        Version = 32,
+        Info = 34,
+        Location = 48,
+        Group = 51,
+        EchoRequest = 58,
+        Color = 101,
+        LightPower = 116,
+        Infrared = 120,
+        HevCycle = 142,
+        HevCycleConfiguration = 145,
+        LastHevCycleResult = 148,
+        ColorZones = 502,
+        MultiZoneEffect = 507,
+        ExtendedColorZones = 511,
+        RPower = 816,
+        DeviceChain = 701,
+        Get64 = 707,
+        TileEffect = 718,
+        SensorGetAmbientLight = 401
+    };
+        
 
     //Payloads used when sending messages to an LIFX device
     namespace Payloads{
 
+
+
+        template<GetQuery Q>
+        struct ResponseStruct;
+
         //Device
         struct SetPower{
             uint16_t level;//0 = off, 65535 = on
+            static SetPower Deserialise(const uint8_t* data){
+                SetPower p;
+                p.level = data[0] | (data[1] << 8);
+                return p;
+            }
             void SerialiseTo(uint8_t* data) const{
                 __writeBytes(data, &level, sizeof(level));
             }
@@ -47,6 +92,8 @@ namespace LIFX{
             }
             static constexpr uint16_t packetId = 21;
         };
+        template<>
+        struct ResponseStruct<GetQuery::LightPower> {using type = SetPower;};
 
         struct SetLabel{
             char label[32];//The new label on the device
@@ -299,15 +346,23 @@ namespace LIFX{
         //Tile
 
         //i dont even have any to test with, and theres "allot" here
-    }
 
-    namespace Response{
+
+
+
         struct StateService{
+            static StateService Deserialise(const uint8_t* data){
+                StateService p;
+                p.service = data[0];
+                p.port = convert<uint32_t>(&data[1]);
+                return p;
+            }
             uint8_t service;//1=UDP, 2-5=Reserved1-4
             uint32_t port;//Port of service, usually 56700, but not always
-            in_addr deviceIP;//the devices IP
             static constexpr uint16_t packetId = 3;
         };
+        template<>
+        struct ResponseStruct<GetQuery::Service> {using type = StateService;};
 
         /*
         Major and Minor versions should be looked at like
@@ -315,12 +370,20 @@ namespace LIFX{
         Each generation of devices has a different major
         */
         struct StateHostFirmware{
+            static StateHostFirmware Deserialise(const uint8_t* data){
+                StateHostFirmware p;
+                p.build = convert<uint64_t>(data);
+                p.versionMinor = data[8] | (data[9] << 8);
+                p.versionMajor = data[10] | (data[11] << 8);
+                return p;
+            }
             uint64_t build;//timestamp of the firmware on the device as an epoch
             uint16_t versionMinor;
             uint16_t versionMajor;
             static constexpr uint16_t packetId = 15;
         };
-
+        template<>
+        struct ResponseStruct<GetQuery::HostFirmware> {using type = StateHostFirmware;};
 
 
         /*
@@ -328,9 +391,16 @@ namespace LIFX{
         More info can be found at https://lan.developer.lifx.com/docs/information-messages#statewifiinfo---packet-17
         */
         struct StateWifiInfo{
+            static StateWifiInfo Deserialise(const uint8_t* data){
+                StateWifiInfo p;
+                memcpy(&p.signal, data, sizeof(p.signal));
+                return p;
+            }
             float signal;//the signal strength of the device
             static constexpr uint16_t packetId = 17;
         };
+        template<>
+        struct ResponseStruct<GetQuery::WifiInfo> {using type = StateWifiInfo;};
 
          /*
         Major and Minor versions should be looked at like
@@ -338,21 +408,25 @@ namespace LIFX{
         Each generation of devices has a different major
         */
         struct StateWifiFirmware{
+            static StateWifiFirmware Deserialise(const uint8_t* data){
+                StateWifiFirmware p;
+                p.build = convert<uint64_t>(data);
+                p.versionMinor = data[8] | (data[9] << 8);
+                p.versionMajor = data[10] | (data[11] << 8);
+                return p;
+            }
             uint64_t build;//timestamp of the wifi firmware on the device as an epoch. Only relevant for the first two generations of LIFX products
             uint16_t versionMinor;
             uint16_t versionMajor;
             static constexpr uint16_t packetId = 19;
         };
+        template<>
+        struct ResponseStruct<GetQuery::WifiFirmware> {using type = StateWifiFirmware;};
 
-        // struct StatePower{
-        //     uint16_t level;//The level of a device (0=Off, 65535=On)
-        //     static constexpr uint16_t packetId = 22;
-        // };
+        template<GetQuery Q>
+        typename ResponseStruct<Q>::type GetResponse(const uint8_t* data) {
+            return ResponseStruct<Q>::type::Deserialise(data);
+        }
 
-        // struct StateLabel{
-        //     char label[32];//The devices label
-        //     static constexpr uint16_t packetId = 25;
-        // };
     }
-    
 }

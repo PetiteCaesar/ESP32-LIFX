@@ -231,7 +231,7 @@ namespace LIFX{
 				if(dm.discovering && header.source == DISCOVER_SOURCE_ID){
 					OnDiscoverRecv(dm,header, buffer);
 				} else if(header.source == GET_RESPONSE_SOURCE_ID){
-					rm.RunResponse(header.sequence,header,buffer + HEADER_SIZE,header.type);
+					rm.RunResponse(header.sequence,header,buffer + HEADER_SIZE);
 				}
 			}
 			vTaskDelay(3);

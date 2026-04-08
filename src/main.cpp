@@ -40,11 +40,6 @@ void setup(){
 	Serial.printf("D2 valid %d\n", LIFX_UDP::Device::IsValid(d2));
 	delay(100);
 	Serial.println("Sending get");
-	//GetLightPower 
-	lifx.GetResp(116,[](LIFX_UDP::DeviceHeader& header, uint8_t* payload, uint16_t type){
-		uint16_t level = payload[0] | (payload[1] << 8);
-		Serial.printf("\nGot resp for 116 (type): %" PRIu16 " should (h) be: %" PRIu16 " with level %" PRIu16  "\n",type, header.type, level);
-	},d1);
 
 	delay(1000);
 
@@ -62,9 +57,12 @@ void loop(){
 			(int)lifx.SetLightPower({val,0},d1, true)
 		));
 		delay(500);
-		lifx.GetResp(116,[](LIFX_UDP::DeviceHeader& header, uint8_t* payload, uint16_t type){
-			uint16_t level = payload[0] | (payload[1] << 8);
-			Serial.printf("\nGot resp for 116 (type): %" PRIu16 " should (h) be: %" PRIu16 " with level %" PRIu16  "\n",type, header.type, level);
+		lifx.GetResponse(LIFX::GetQuery::LightPower,[](LIFX_UDP::DeviceHeader& header, const uint8_t* data){
+			Payloads::SetPower payload = LIFX::Payloads::GetResponse<LIFX::GetQuery::LightPower>(data);
+			Serial.printf("\nGot resp for 116 (type): %" PRIu16 
+				" should (h) be: %" PRIu16 
+				" with level %" PRIu16  "\n",
+				116, header.type, payload.level);
 		},d1);
 
 		lifx.SetLightPower({val,0},d2, true);

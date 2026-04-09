@@ -332,6 +332,14 @@ namespace LIFX{
         struct SetRPower{
             uint8_t relayIndex;//The relay on the switch starting from 0
             uint16_t level;//The new level of the relay
+            
+            static SetRPower Deserialise(const uint8_t* data){
+                SetRPower p;
+                p.relayIndex = data[0];
+                p.level = convert<uint16_t>(&data[1]);
+                return p;
+            }
+
             void SerialiseTo(uint8_t* data) const{
                 __writeBytes(data, &relayIndex, sizeof(relayIndex));
                 __writeBytes(data, &level, sizeof(level));
@@ -341,6 +349,8 @@ namespace LIFX{
             }
             static constexpr uint16_t packetId = 817;
         };
+        template<>
+        struct ResponseStruct<GetQuery::RPower> {using type = SetRPower;};
         //End Relay
 
         //Tile

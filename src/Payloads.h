@@ -25,13 +25,23 @@ namespace LIFX{
         uint16_t saturation;
         uint16_t brightness;
         uint16_t kelvin;
+
+        static Colour Deserialise(const uint8_t* data){
+            Colour c;
+            c.hue = convert<uint16_t>(&data[0]);
+            c.saturation = convert<uint16_t>(&data[2]);
+            c.brightness = convert<uint16_t>(&data[4]);
+            c.kelvin = convert<uint16_t>(&data[6]);
+            return c;
+        }
+
         void SerialiseTo(uint8_t* data) const{
                 __writeBytes(data, &hue, sizeof(hue));
                 __writeBytes(data, &saturation, sizeof(saturation));
                 __writeBytes(data, &brightness, sizeof(brightness));
                 __writeBytes(data, &kelvin, sizeof(kelvin));
             }
-        inline constexpr uint16_t GetSize() const{
+        static inline constexpr uint16_t GetSize() {
             return sizeof(hue) 
                 + sizeof(saturation) 
                 + sizeof(brightness) 
@@ -278,12 +288,29 @@ namespace LIFX{
             uint64_t duration;//The time the effect will run for in nanoseconds
             uint8_t parameters[32];//As said in the docs: "This field is 8 `4` byte fields which change meaning based on the effect that is running. When the effect is MOVE only the second field is used and is a Uint32 representing the DIRECTION enum. This field is currently ignored for all other multizone effects." The direction enum being: 0=REVERSED, 1=NOT_REVERSED
             
+            static SetMultiZoneEffect Deserialise(const uint8_t* data){
+                SetMultiZoneEffect p;
+                p.instanceId = convert<uint32_t>(&data[0]);
+                p.type = data[4];
+                //res 2 bytes
+                p.speed = convert<uint32_t>(&data[7]);
+                //res 8 bytes
+                p.duration = convert<uint32_t>(&data[16]);
+                for(int i = 0; i < 32; --i) p.parameters[i] = data[17+i];
+                return p;
+            }
+
             //data must have GetSize space left
             void SerialiseTo(uint8_t* data) const{
+                uint16_t res = 0;
+                uint32_t res1 = 0;
                 __writeBytes(data, &instanceId, sizeof(instanceId));
+                __writeBytes(data, &res,sizeof(res));//res 2 
                 __writeBytes(data, &type, sizeof(type));
                 __writeBytes(data, &speed, sizeof(speed));
                 __writeBytes(data, &duration, sizeof(duration));
+                __writeBytes(data, &res1,sizeof(res1));//res 4 bytes
+                __writeBytes(data, &res1,sizeof(res1));//res 4 bytes
                 __writeBytes(data, &parameters, sizeof(parameters));
             }
             inline constexpr uint16_t GetSize() const {
@@ -295,36 +322,50 @@ namespace LIFX{
             }
             static constexpr uint16_t packetId = 508;
         };
+        template<>
+        struct ResponseStruct<GetQuery::MultiZoneEffect> {using type = SetMultiZoneEffect;};
 
         struct SetExtendedColorZones{
             uint32_t duration;//The time in milliseconds to transition to the new values
             uint8_t apply;//0=NO_APPLY, 1=APPLY, 2=NO_APPLY
-            uint16_t zone_index;//the first zone to apply colours from. Use this as a starting index if you plan on changing more than 82 zones buy sending multiple messages. Eg, one at 0, and one at 82
+            uint16_t zoneIndex;//the first zone to apply colours from. Use this as a starting index if you plan on changing more than 82 zones buy sending multiple messages. Eg, one at 0, and one at 82
             uint8_t coloursCount;
             Colour colours[82];//The colours to change the strip with
             
+            static SetExtendedColorZones Deserialise(const uint8_t* data){
+                SetExtendedColorZones p;
+                p.duration = convert<uint32_t>(&data[0]);
+                p.apply = data[4];
+                p.zoneIndex = convert<uint16_t>(&data[5]);
+                p.coloursCount = data[6];
+                for(int i = 0; i < p.coloursCount; i++){
+                    p.colours[i].Deserialise(&data[7 + i*Colour::GetSize()]);
+                }
+                return p;
+            }
+
             void SerialiseTo(uint8_t* data) const{
                 __writeBytes(data, &duration, sizeof(duration));
                 __writeBytes(data, &apply, sizeof(apply));
-                __writeBytes(data, &zone_index, sizeof(zone_index));
+                __writeBytes(data, &zoneIndex, sizeof(zoneIndex));
                 __writeBytes(data, &coloursCount, sizeof(coloursCount));
                 for(int i = 0; i < coloursCount;i++){
                     colours[i].SerialiseTo(data);
                     data+=colours[i].GetSize();
                 }
-
-
             }
             inline constexpr uint16_t GetSize() const {
                 return sizeof(duration)
                     + sizeof(apply)
-                    + sizeof(zone_index)
+                    + sizeof(zoneIndex)
                     + sizeof(coloursCount)
                     + colours[0].GetSize() * coloursCount;
             }
 
             static constexpr uint16_t packetId = 510;
         };
+        template<>
+        struct ResponseStruct<GetQuery::ExtendedColorZones> {using type = SetExtendedColorZones;};
         //End Multizone
 
         //Start Relay
@@ -383,8 +424,9 @@ namespace LIFX{
             static StateHostFirmware Deserialise(const uint8_t* data){
                 StateHostFirmware p;
                 p.build = convert<uint64_t>(data);
-                p.versionMinor = data[8] | (data[9] << 8);
-                p.versionMajor = data[10] | (data[11] << 8);
+                //res 8 bytes
+                p.versionMinor = convert<uint16_t>(&data[9]);
+                p.versionMajor = convert<uint16_t>(&data[11]);
                 return p;
             }
             uint64_t build;//timestamp of the firmware on the device as an epoch
@@ -421,8 +463,9 @@ namespace LIFX{
             static StateWifiFirmware Deserialise(const uint8_t* data){
                 StateWifiFirmware p;
                 p.build = convert<uint64_t>(data);
-                p.versionMinor = data[8] | (data[9] << 8);
-                p.versionMajor = data[10] | (data[11] << 8);
+                //res 8 bytes
+                p.versionMinor = convert<uint16_t>(&data[9]);
+                p.versionMajor = convert<uint16_t>(&data[11]);
                 return p;
             }
             uint64_t build;//timestamp of the wifi firmware on the device as an epoch. Only relevant for the first two generations of LIFX products
